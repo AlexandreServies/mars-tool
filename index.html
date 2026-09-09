@@ -160,7 +160,7 @@ const mktReady=()=>ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0));
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n};
 let PROV=null; let COST={}; // level -> {ids,amts}
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -173,7 +173,7 @@ const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
 async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error){const er=new Error(j.error.message||JSON.stringify(j.error));er.data=(j.error.data&&j.error.data.data)||j.error.data;throw er;}return j.result;}
 // contract error selectors -> readable reason (from the game's own decoder)
-const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"finished rig not collected — Collect frees it","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet"};
+const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x1e076c1d":()=>"listing changed — refresh"};
 function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;else if(d&&typeof d.data==="string")hex=d.data;if(!hex){const mm=((e&&e.message)||"").match(/0x[0-9a-fA-F]{8,}/);if(mm)hex=mm[0];}hex=(hex||"").toLowerCase();
   if(hex.indexOf("0x")===0&&hex.length>=10){const sel=hex.slice(0,10);
     if(sel==="0x08c379a0"){try{const len=parseInt(hex.slice(74,138),16);const bytes=hex.slice(138,138+len*2);return decodeURIComponent(bytes.replace(/(..)/g,"%$1"));}catch(_){}}
@@ -226,7 +226,7 @@ async function loadCosts(){for(let l=2;l<=MAXLVL;l++){if(COST[l])continue;try{co
 // read live ore market (on-chain, no CORS) + $DRILL/ETH price from the V4 pool
 async function loadMarket(){
   try{const s0=await ethCall(A.poolMgr,S.extsload+POOL_SLOT0.slice(2));const v=BigInt(s0||"0x0"),sqrt=v&((1n<<160n)-1n);const dpw=Number(sqrt*sqrt*10n**18n/(1n<<192n))/1e18;ST.drillEth=dpw?1/dpw:0;}catch(e){ST.drillEth=0;}
-  const bid=Array(12).fill(0),ask=Array(12).fill(0);
+  const bid=Array(12).fill(0),ask=Array(12).fill(0),book=[];
   try{
     const lo=Number(BigInt(await ethCall(A.market,S.lastOffer)||"0x0"));
     if(lo>0){const lc=[],oc=[];for(let i=1;i<=lo;i++){lc.push({to:A.market,data:S.offerLive+w(i)});oc.push({to:A.market,data:S.offerOf+w(i)});}
@@ -234,10 +234,21 @@ async function loadMarket(){
       od.forEach((r,ix)=>{const live=lv[ix]&&BigInt(lv[ix].data||"0x0")===1n;if(!live||!r.success)return;const W=words(r.data);const ore=parseInt(W[1],16),price=Number(BigInt("0x"+(W[4]||"0")))/1e18;if(ore<12&&price>bid[ore])bid[ore]=price;});}
     const ll=Number(BigInt(await ethCall(A.market,S.lastListing)||"0x0"));
     for(let s=1;s<=ll;s+=240){const calls=[];for(let i=s;i<Math.min(s+240,ll+1);i++)calls.push({to:A.market,data:S.listingOf+w(i)});
-      const dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
-      dec.forEach(r=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const n=parseInt(W[4]||"0",16);for(let k=0;k<n;k++){const id=parseInt(W[5+k*3]||"0",16),amt=BigInt("0x"+(W[6+k*3]||"0")),price=Number(BigInt("0x"+(W[7+k*3]||"0")))/1e18;if(amt>0n&&id<12&&price>0)ask[id]=ask[id]?Math.min(ask[id],price):price;}});}
+      const ids=calls.map((_,k)=>s+k),dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
+      dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12&&pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});ask[id]=ask[id]?Math.min(ask[id],price):price;}}if(lots.length)book.push({id:ids[k],lots});});}
   }catch(e){log("market read: "+e.message);}
-  ST.bid=bid;ST.ask=ask;}
+  ST.bid=bid;ST.ask=ask;ST.book=book;
+  try{ST.mktAllow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.market)));}catch(e){ST.mktAllow=0n;}}
+// cheapest-first plan to buy `need` = {stoneId: qty}; returns grouped buy calls, wei cost, and any shortfall
+function planBuy(need){const byList={},short={};let costWei=0n;
+  for(const sid in need){let q=need[sid]|0;if(q<=0)continue;const opts=[];
+    (ST.book||[]).forEach(L=>L.lots.forEach(lot=>{if(lot.stone==sid&&lot.amount>0)opts.push({id:L.id,priceWei:lot.priceWei,amount:lot.amount});}));
+    opts.sort((a,b)=>a.priceWei<b.priceWei?-1:a.priceWei>b.priceWei?1:0);
+    for(const o of opts){if(q<=0)break;const take=Math.min(q,o.amount);(byList[o.id]=byList[o.id]||[]).push({stone:+sid,amount:take});costWei+=o.priceWei*BigInt(take);q-=take;}
+    if(q>0)short[sid]=q;}
+  const calls=Object.entries(byList).map(([id,lots])=>({listingId:+id,ids:lots.map(l=>l.stone),amounts:lots.map(l=>l.amount)}));
+  return{calls,costWei,short};}
+function encBuy(listingId,ids,amounts){const a=w(ids.length)+ids.map(w).join(""),b=w(amounts.length)+amounts.map(w).join("");return S.buy+w(listingId)+w(96)+w(96+a.length/2)+a+b;}
 
 async function loadAll(){try{
   setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
@@ -293,13 +304,21 @@ function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=
 function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);
   $("portR").textContent=fmt(ST.myWeight)+" wt · "+(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   $("portTbl").innerHTML="<table><thead><tr><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th>Rig</th><th></th></tr></thead><tbody>"+
-    p.map(x=>{const can=ST.canSign&&x.level<MAXLVL&&stonesEnough(x.level+1);
+    p.map(x=>{const can=ST.canSign&&x.level<MAXLVL;
     return `<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
       <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
       <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
       <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";}
 function fillUpSel(){const opts=ST.plots.filter(p=>p.level<MAXLVL).sort((a,b)=>a.level-b.level||a.id-b.id).map(p=>{const ok=stonesEnough(p.level+1);return `<option value="${p.id}" data-lvl="${p.level}">#${p.id} L${p.level}→${p.level+1}${ok===true?' ✓':ok===false?' ✗':''}</option>`;}).join("");$("upSel").innerHTML=opts||'<option>—</option>';upSelChanged();}
-function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)return;const lvl=Number(o.dataset.lvl);$("upCost").innerHTML=COST[lvl+1]?("Cost L"+(lvl+1)+": "+costStr(lvl+1)+(stonesEnough(lvl+1)?' <span class=grn>✓ have</span>':' <span class=red>✗ short</span>')):"…";}
+function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset){$("upCost").textContent="";return;}
+  const lvl=Number(o.dataset.lvl),tgt=lvl+1,c=COST[tgt];if(!c){$("upCost").textContent="…";return;}
+  const missing={};c.ids.forEach((sid,k)=>{const m=Math.max(0,c.amts[k]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;});
+  let html="L"+tgt+": "+c.ids.map((sid,k)=>c.amts[k]+"×"+STONE[sid][0]).join(", ");
+  if(!Object.keys(missing).length){html+=' <span class=grn>✓ have</span>';}
+  else{const plan=planBuy(missing),shortKeys=Object.keys(plan.short),cost=Number(plan.costWei)/1e18;
+    if(shortKeys.length)html+=' · <span class=red>'+shortKeys.map(s=>STONE[s][0]).join("/")+' unlisted — mine via Motherlode</span>';
+    else html+=' · <span class=gold>buy missing ≈ '+fmt(cost)+' DRILL'+(ST.drillEth?' ('+fmt(cost*ST.drillEth,4)+' ETH)':'')+'</span> · Upgrade auto-buys';}
+  $("upCost").innerHTML=html;}
 
 // ---- write actions ----
 async function guardChain(outEl){if(!ST.canSign){outEl.innerHTML='<div class="status s-err">Connect a wallet first.</div>';return false;}
@@ -376,11 +395,30 @@ async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;
     try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
   try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' ('+extN+' external'+(paidNow?', '+paidNow+' paid':'')+') ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
   catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
+async function waitTx(h){for(let i=0;i<50;i++){try{const r=await rpc("eth_getTransactionReceipt",[h]);if(r&&r.blockNumber)return r;}catch(e){}await new Promise(res=>setTimeout(res,400));}return null;}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
-  if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
-  if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+(p.level+1)+'…</div>';
-  await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+(p.level+1));}
+  const tgt=p.level+1,c=COST[tgt];if(!c){o.innerHTML='<div class="status s-err">Upgrade cost still loading — refresh.</div>';return;}
+  if(!await guardChain(o))return;
+  const missing={};c.ids.forEach((sid,k)=>{const m=Math.max(0,c.amts[k]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;});
+  if(Object.keys(missing).length){ // buy the shortfall from the market, cheapest first
+    const plan=planBuy(missing),shortKeys=Object.keys(plan.short);
+    if(shortKeys.length){o.innerHTML='<div class="status s-err">Can\'t buy '+shortKeys.map(s=>STONE[s][0]).join("/")+' — none listed. Mine via Motherlode.</div>';return;}
+    if(!plan.calls.length){o.innerHTML='<div class="status s-err">No listings to buy from — refresh.</div>';return;}
+    const costWei=plan.costWei,costD=Number(costWei)/1e18;
+    if(ST.drill<costD){o.innerHTML='<div class="status s-err">Need '+fmt(costD)+' DRILL to buy materials, have '+fmt(ST.drill)+'.</div>';return;}
+    if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
+      try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
+      catch(e){o.innerHTML='<div class="status s-err">Approve rejected: '+decodeErr(e)+'</div>';return;}}
+    let lastH;
+    for(let i=0;i<plan.calls.length;i++){const cc=plan.calls[i],data=encBuy(cc.listingId,cc.ids,cc.amounts);
+      o.innerHTML='<div class="status s-wait">Buying materials '+(i+1)+'/'+plan.calls.length+' ('+fmt(costD)+' DRILL total)…</div>';
+      try{await ethCall(A.market,data,ST.addr);}catch(e){o.innerHTML='<div class="status s-err">Buy '+(i+1)+' failed (listing changed) — refresh & retry. '+decodeErr(e)+'</div>';return;}
+      try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUY "+lastH);}catch(e){o.innerHTML='<div class="status s-err">Buy rejected: '+decodeErr(e)+'</div>';return;}}
+    o.innerHTML='<div class="status s-wait">Materials bought — waiting for confirmation…</div>';await waitTx(lastH);
+  }
+  o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+tgt+'…</div>';
+  await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);}
 window.upgradePlot=upgradePlot;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
