@@ -37,7 +37,8 @@ const cfg = {
   market:     process.env.MARS_MARKET !== "0",                       // engine 2 on/off
   // farm
   targetRigs: num(process.env.MARS_TARGET_RIGS, 100),               // keep this many rigs planted
-  maxSpend:   num(process.env.MARS_MAX_SPEND, 0),                    // max DRILL/cycle on paid haulers
+  maxSpend:   num(process.env.MARS_MAX_SPEND, 0),                    // optional cap on paid DRILL/cycle (0 = no cap, spend all)
+  drillReserve: num(process.env.MARS_DRILL_RESERVE, 0),             // keep this much DRILL unspent
   external:   process.env.MARS_EXTERNAL === "1",                     // spill onto others' open plots
   farmMs:     num(process.env.MARS_FARM_MS, 30000),                  // farm loop cadence
   collectChunk: num(process.env.MARS_COLLECT_CHUNK, 20),            // trays per collect tx
@@ -221,19 +222,20 @@ async function plantHaulers() {
 
   const free = await freeHaulerCredits();
   let paid = Math.max(0, want - free);
-  if (paid * HAULER_COST > cfg.maxSpend) {                 // respect the spend cap
-    paid = Math.floor(cfg.maxSpend / HAULER_COST);
-    want = Math.min(want, free + paid);
+  if (paid > 0) {
+    // fund paid haulers from the DRILL in your wallet, down to the reserve; MARS_MAX_SPEND is an optional per-cycle cap
+    const bal = await drillBalance();
+    const reserveWei = toWei(cfg.drillReserve);
+    const spendable = bal > reserveWei ? bal - reserveWei : 0n;
+    let affordable = Number(spendable / (BigInt(HAULER_COST) * ONE));
+    if (cfg.maxSpend > 0) affordable = Math.min(affordable, Math.floor(cfg.maxSpend / HAULER_COST));
+    paid = Math.min(paid, affordable);
+    want = free + paid;
+    if (want <= 0) { log(`plant: ${empties.length} empty, ${free} free, DRILL ${fmtWei(bal, 0)} funds 0 haulers (${HAULER_COST} ea${cfg.drillReserve ? `, reserve ${cfg.drillReserve}` : ""}${cfg.maxSpend ? `, cap ${cfg.maxSpend}/cycle` : ""})`); return; }
   }
-  if (want <= 0) { if (free === 0) log(`plant: ${empties.length} empty plot(s) but 0 free credits and MARS_MAX_SPEND=${cfg.maxSpend}`); return; }
-  paid = Math.max(0, want - free);
 
   const maxWei = BigInt(paid * HAULER_COST) * ONE;
-  if (paid > 0) {
-    const bal = await drillBalance();
-    if (bal < maxWei) { log(`plant: need ${paid * HAULER_COST} DRILL for ${paid} paid, have ${fmtWei(bal, 0)}`); return; }
-    await ensureAllowance(A.site, maxWei, "site (DRILL)");
-  }
+  if (paid > 0) await ensureAllowance(A.site, maxWei, "site (DRILL)");
   // contract requires ascending parcel order; pick best (highest-level) plots then sort ascending
   const parcels = empties.slice(0, want).map((p) => p.id).sort((a, b) => a - b);
   const tiers = parcels.map(() => HAULER);
@@ -330,7 +332,7 @@ async function main() {
   log(`mode     ${cfg.dry ? "DRY-RUN (no txs sent) — set MARS_DRY=0 to go live" : "LIVE"}`);
   log(`gas ETH  ${fmtWei(eth, 5)}`);
   log(`engines  farm=${cfg.farm ? "on" : "off"} market=${cfg.market ? "on" : "off"}`);
-  if (cfg.farm) log(`  farm   target ${cfg.targetRigs} rigs, maxSpend ${cfg.maxSpend} DRILL/cycle, external=${cfg.external}, every ${cfg.farmMs / 1000}s`);
+  if (cfg.farm) log(`  farm   keep ${cfg.targetRigs} rigs, fund from wallet DRILL${cfg.drillReserve ? ` (reserve ${cfg.drillReserve})` : ""}${cfg.maxSpend ? `, <=${cfg.maxSpend}/cycle` : ""}, external=${cfg.external}, every ${cfg.farmMs / 1000}s`);
   if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
   log("==========================================");
 

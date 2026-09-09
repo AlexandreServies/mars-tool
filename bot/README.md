@@ -82,8 +82,11 @@ On Node ≥ 20 you can skip the `source` step with `node --env-file=.env mars-bo
 - **Dry-run by default.** Nothing is sent until you set `MARS_DRY=0`.
 - **Every write is `eth_call`-simulated first.** A revert is logged and the tx is
   not sent — so a contested plot or stale listing can't waste gas.
-- **Paid planting is capped** by `MARS_MAX_SPEND` (default `0` = free credits
-  only). Raise it to let the farm buy Haulers.
+- **Paid planting spends your wallet DRILL** to keep rigs planted up to the
+  100-rig cap. It's bounded and self-funding — at most ~100 rigs in flight, and
+  each collect returns ~96% of a rig's cost plus its ore. Set
+  `MARS_DRILL_RESERVE` to hold back a buffer, or `MARS_MAX_SPEND` to cap
+  per-cycle spend.
 - You need a little **ETH for gas** in the wallet; the startup banner prints your
   balance.
 - Keys are read from `MARS_PK` only and never logged. Keep `.env` out of git
@@ -99,7 +102,8 @@ See `.env.example` for the full list. The common knobs:
 | `MARS_DRY` | `1` | `0` to send real transactions |
 | `MARS_FARM` / `MARS_MARKET` | `1` | enable each engine |
 | `MARS_TARGET_RIGS` | `100` | rigs to keep planted (cap 100) |
-| `MARS_MAX_SPEND` | `0` | max DRILL/cycle on paid haulers |
+| `MARS_MAX_SPEND` | `0` | optional cap on paid DRILL/cycle (`0` = spend all) |
+| `MARS_DRILL_RESERVE` | `0` | DRILL to keep unspent |
 | `MARS_EXTERNAL` | `0` | plant on others' open plots when yours run out |
 | `MARS_MIN_LOT` | `2` | ignore ask lots smaller than this (qty-1 dust) |
 | `MARS_DEPTH` | `10` | cumulative depth the reference ask must reach |
