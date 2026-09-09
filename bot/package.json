@@ -1,0 +1,15 @@
+{
+  "name": "mars-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone farm + market-making automation for Project Mars (Robinhood Chain)",
+  "bin": { "mars-bot": "mars-bot.mjs" },
+  "scripts": {
+    "start": "node mars-bot.mjs",
+    "dry": "MARS_DRY=1 node mars-bot.mjs",
+    "live": "MARS_DRY=0 node mars-bot.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ethers": "^6.13.0" }
+}
