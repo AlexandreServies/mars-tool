@@ -46,6 +46,7 @@ const cfg = {
   marketMs:   Math.max(60000, num(process.env.MARS_MARKET_MS, 60000)), // rebalance >= 60s apart
   depthUnits: num(process.env.MARS_DEPTH, 10),                       // dedust: ask must reach this depth
   minLot:     num(process.env.MARS_MIN_LOT, 2),                      // ignore ask lots smaller than this (qty-1 dust)
+  maxLots:    Math.max(1, num(process.env.MARS_MAX_LOTS, 3)),        // sell-side depth per stone, in lots of 99 (contract caps a lot at 99)
   relistPct:  num(process.env.MARS_RELIST_PCT, 0.10),               // relist for qty growth >= this frac
   floorDrill: num(process.env.MARS_FLOOR_DRILL, 0),                  // extra absolute price floor (DRILL/stone)
 };
@@ -271,7 +272,10 @@ async function engineMarket() {
 
   const wallet = await stoneBalances();
 
-  // desired listing per stone = full qty (wallet + what's already listed) at (bestOther-1), floored
+  // desired sell-side depth per stone = min(held+listed, maxLots*99) at (bestOther-1), floored.
+  // capped so the maker keeps a competitive depth and replenishes as it sells, instead of dumping
+  // thousands of units across dozens of txs (the contract caps a lot at 99 and forbids duplicate ids).
+  const CAPUNITS = cfg.maxLots * 99;
   const targets = [];
   for (let i = 0; i < 12; i++) {
     if (bestOther[i] === 0n) continue;                         // nobody else selling -> nothing to undercut
@@ -281,17 +285,18 @@ async function engineMarket() {
     const floor = bestBid[i] > floorAbs ? bestBid[i] : floorAbs;
     if (t < floor) t = floor;                                  // never below best bid / configured floor
     if (t <= 0n) continue;
-    targets.push({ stone: i, price: t, qty: total });
+    targets.push({ stone: i, price: t, qty: Math.min(total, CAPUNITS) });   // qty = depth to keep listed
   }
 
-  // rebalance only if something actually drifted (this also naturally throttles churn)
+  // rebalance only when something actually drifted (this also throttles churn)
   const desired = new Set(targets.map((t) => t.stone));
   const reasons = [];
   for (const t of targets) {
     const cur = myLots[t.stone];
-    if (cur.price === null) reasons.push(`list ${STONE_NAMES[t.stone]}×${t.qty}`);
-    else if (cur.price !== t.price) reasons.push(`reprice ${STONE_NAMES[t.stone]} ${fmtWei(cur.price)}→${fmtWei(t.price)}`);
-    else if (wallet[t.stone] >= Math.max(1, Math.floor(cur.qty * cfg.relistPct))) reasons.push(`grow ${STONE_NAMES[t.stone]}+${wallet[t.stone]}`);
+    if (cur.price === null) { reasons.push(`list ${STONE_NAMES[t.stone]}×${t.qty}`); continue; }
+    if (cur.price !== t.price) { reasons.push(`reprice ${STONE_NAMES[t.stone]} ${fmtWei(cur.price)}→${fmtWei(t.price)}`); continue; }
+    const gap = t.qty - cur.qty;                                // depth sold off that the wallet can top back up
+    if (gap >= Math.max(1, Math.floor(t.qty * cfg.relistPct)) && wallet[t.stone] > 0) reasons.push(`refill ${STONE_NAMES[t.stone]} ${cur.qty}→${t.qty}`);
   }
   for (let i = 0; i < 12; i++) if (myLots[i].price !== null && !desired.has(i)) reasons.push(`delist ${STONE_NAMES[i]}`);
   if (!reasons.length) return;
@@ -299,16 +304,27 @@ async function engineMarket() {
   log(`market: rebalance — ${reasons.slice(0, 6).join(", ")}${reasons.length > 6 ? " …" : ""}`);
   lastRebalance = Date.now();
 
-  // cancel all my listings, then re-list everything at fresh targets in one tx
+  // cancel all my listings (returns escrow to the wallet), then re-list at fresh targets
   for (const id of myIds) { try { await tx(A.market, data(S.cancelListing, ["uint256"], [id]), `cancel #${id}`); } catch (e) { log(`  cancel #${id} failed: ${errStr(e)}`); } }
-  if (cfg.dry) { log(`  DRY  would list: ${targets.map((t) => `${STONE_NAMES[t.stone]}×${t.qty}@${fmtWei(t.price)}`).join(", ")}`); return; }
 
   await ensureStoneApproval();
-  const fresh = await stoneBalances();                          // escrow returned by the cancels
-  const lots = targets.map((t) => ({ stone: t.stone, qty: fresh[t.stone], price: t.price })).filter((l) => l.qty > 0);
-  if (!lots.length) { log("  nothing to list after cancel"); return; }
-  await tx(A.market, data(S.list, ["uint256[]", "uint256[]", "uint256[]"], [lots.map((l) => l.stone), lots.map((l) => l.qty), lots.map((l) => l.price)]), `list ${lots.length} stone type(s)`);
-  log(`  listed ${lots.map((l) => `${STONE_NAMES[l.stone]}×${l.qty}@${fmtWei(l.price)}`).join(", ")}`);
+  const fresh = cfg.dry ? wallet.map((w, i) => w + myLots[i].qty) : await stoneBalances();   // after cancel, escrow is back in wallet
+  // split each stone into <=99 lots; a stone id may appear only once per listing, so bin-pack:
+  // listing tranche i holds lot i of every stone that still has one -> unique ids, <=99 each, <=maxLots tranches.
+  const perStone = targets.map((t) => {
+    let rem = Math.min(fresh[t.stone], t.qty); const lots = [];
+    while (rem > 0) { const a = Math.min(99, rem); lots.push({ stone: t.stone, amount: a, price: t.price }); rem -= a; }
+    return lots;
+  }).filter((c) => c.length);
+  const K = perStone.reduce((m, c) => Math.max(m, c.length), 0);
+  if (!K) { log("  nothing to list after cancel"); return; }
+  if (cfg.dry) { log(`  DRY  would list ${perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ")} in ${K} tranche(s)`); return; }
+  for (let i = 0; i < K; i++) {
+    const lots = perStone.map((c) => c[i]).filter(Boolean);
+    if (!lots.length) continue;
+    await tx(A.market, data(S.list, ["uint256[]", "uint256[]", "uint256[]"], [lots.map((l) => l.stone), lots.map((l) => l.amount), lots.map((l) => l.price)]), `list tranche ${i + 1}/${K} (${lots.length} stone)`);
+  }
+  log(`  listed ${perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ")} in ${K} tranche(s)`);
 }
 
 // --------------------------------------------------------------- runtime -----
@@ -333,7 +349,7 @@ async function main() {
   log(`gas ETH  ${fmtWei(eth, 5)}`);
   log(`engines  farm=${cfg.farm ? "on" : "off"} market=${cfg.market ? "on" : "off"}`);
   if (cfg.farm) log(`  farm   keep ${cfg.targetRigs} rigs, fund from wallet DRILL${cfg.drillReserve ? ` (reserve ${cfg.drillReserve})` : ""}${cfg.maxSpend ? `, <=${cfg.maxSpend}/cycle` : ""}, external=${cfg.external}, every ${cfg.farmMs / 1000}s`);
-  if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
+  if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, keep <=${cfg.maxLots} lots (${cfg.maxLots * 99}) per stone, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
   log("==========================================");
 
   if (cfg.farm) { try { await signIn(); } catch (e) { log(`sign-in failed (collect will retry): ${errStr(e)}`); } }

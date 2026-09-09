@@ -41,9 +41,14 @@ thin liquidity can't drag the price down:
 2. of what's left, **take the price only once cumulative depth reaches
    `MARS_DEPTH` units** (default 10).
 
-It lists your whole balance **1 wei under** that price. (If a stone's *only*
-asks are below `MARS_MIN_LOT`, it's treated as having no real ask and is left
-unlisted — set `MARS_MIN_LOT=1` to price off qty-1 asks too.) Guards:
+It lists **1 wei under** that price, keeping up to `MARS_MAX_LOTS` lots of depth
+per stone. (The contract caps a single lot at 99 units and forbids the same
+stone id twice in one listing, so larger depth is spread across separate
+listings; the bot bin-packs so a rebalance is at most `MARS_MAX_LOTS` txs total,
+not one per stone.) As that depth sells it's replenished from your wallet — so
+inventory drains steadily instead of dumping thousands of units at once. (If a
+stone's *only* asks are below `MARS_MIN_LOT`, it's treated as having no real ask
+and is left unlisted — set `MARS_MIN_LOT=1` to price off qty-1 asks too.) Guards:
 
 - **Never below the best bid** (and never below `MARS_FLOOR_DRILL`) — a troll
   dust ask can't make it dump your inventory.
@@ -107,6 +112,7 @@ See `.env.example` for the full list. The common knobs:
 | `MARS_EXTERNAL` | `0` | plant on others' open plots when yours run out |
 | `MARS_MIN_LOT` | `2` | ignore ask lots smaller than this (qty-1 dust) |
 | `MARS_DEPTH` | `10` | cumulative depth the reference ask must reach |
+| `MARS_MAX_LOTS` | `3` | sell-side depth per stone, in lots of 99 |
 | `MARS_FLOOR_DRILL` | `0` | extra price floor per stone |
 
 ## Running on AWS
