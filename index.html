@@ -425,6 +425,8 @@ function planFree(){const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200
   return{parcels,tiers};}
 async function sendFree(){
   if(!ST.canSign){$("freeOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first: tap <b>Injected</b> (in Rabby/MetaMask\'s in-app browser) or <b>WalletConnect</b> above, then place.</div>';return;}
+  $("freeOut").innerHTML='<div class="status s-wait">Making sure your wallet is on Robinhood Chain (4663)…</div>';
+  if(!await ensureRobinhood(PROV)){$("freeOut").innerHTML='<div class="status s-err">Your wallet is NOT on Robinhood Chain (4663). Approve the network switch in your wallet, or switch it manually, then place again. (A tx on any other chain does nothing.)</div>';return;}
   const p=planFree();if(!p)return;const data=encCredits(p.parcels,p.tiers,0n);
   try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
   catch(e){setS("Simulation reverted — not sending. "+e.message,"s-err");log("SIM REVERT "+e.message);return;}
@@ -444,6 +446,7 @@ function planPaid(){const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(
   return{parcels,tiers,cost};}
 async function sendPaid(){
   if(!ST.canSign){$("paidOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first.</div>';return;}
+  if(!await ensureRobinhood(PROV)){$("paidOut").innerHTML='<div class="status s-err">Your wallet is NOT on Robinhood Chain (4663). Approve the switch in your wallet, then place again.</div>';return;}
   const p=planPaid();if(!p)return;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,p.cost))*10n**18n;
   const data=encCredits(p.parcels,p.tiers,maxWei);
   try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
