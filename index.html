@@ -124,7 +124,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">held · listed · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones <span class="r">held · listed · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -322,11 +322,37 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
   if($("rigCardNote"))$("rigCardNote").textContent=mkt?"DRILL find + ore resale":"loading prices…";
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n title='DRILL minted on collect'>DRILL</th><th class=n title='ore resale value'>ore</th><th class=n>×</th><th class=n>/h</th></tr></thead><tbody>"+rows.map(({t,drill,ore,r,ph})=>`<tr${t===best.t?' style="background:#171008"':''}><td>${t.n}${t===best.t?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(drill)}</td><td class="n ${ore?'':'muted'}">${mkt?fmt(ore):'…'}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`).join("")+"</tbody>";
   if($("rigNote"))$("rigNote").innerHTML='Collect mints <b>DRILL ≈ 96% of cost</b> + the ore + a small owner/planter bonus. <span class="grn">Free rigs = pure profit</span> (~'+fmt(rigDrill(TIERS[2]))+' DRILL + ore per free Driller). Paid rigs ≈ break-even — the <b>ore is your margin</b>'+(mkt?', best on <b>'+best.t.n+'</b>':'')+'.';}
-function renderStones(){const mkt=mktReady();
+function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
   const offN=Array(12).fill(0),offQty=Array(12).fill(0);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;const aw=(ST.askWei&&ST.askWei[l.stone])||0n;if(aw>1n&&l.priceWei!==aw-1n){offN[l.stone]++;offQty[l.stone]+=l.amount;}});});  // count only the off-target listings — those are all Adjust touches
-  $("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
+  const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
+  $("stoneTbl").innerHTML="<thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
     let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="List your ${fmt(n)} wallet ${s[0]} in ${nl} listing${nl>1?'s':''} at 1 tick under ${fmt(a,dec)}">List${nl>1?' ·'+nl:''}</button>`;if(offN[i]>0){const nAdj=offN[i]+Math.ceil(offQty[i]/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-price only your ${fmt(offQty[i])} off-target ${s[0]} to 1 tick under ${fmt(a,dec)} — ${nAdj} tx (listings already at target are left alone)">Adj ·${nAdj}</button>`;}}else if(n>0||lst>0)act='<span class="muted" title="no liquid ask to undercut">—</span>';
-    return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";}
+    const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
+    return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";
+  renderBatchBtn();}
+// ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
+function toggleSel(i){if(!ST.listSel)ST.listSel=new Set();if(ST.listSel.has(i))ST.listSel.delete(i);else ST.listSel.add(i);renderBatchBtn();}
+function toggleSelAll(){if(!ST.listSel)ST.listSel=new Set();const listable=STONE.map((_,i)=>i).filter(i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0));const allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));ST.listSel=new Set(allSel?[]:listable);renderStones();}
+function selItems(){return [...(ST.listSel||[])].filter(i=>(ST.stones[i]||0)>0&&ST.askWei&&ST.askWei[i]>1n).sort((a,b)=>a-b).map(i=>({stone:i,amount:ST.stones[i],price:ST.askWei[i]-1n}));}
+// chunk each stone into <=99 lots, then take the t-th lot of every stone -> listings of <=5 distinct stones
+function packListings(items){const cols=items.map(it=>{const lots=[];let rem=it.amount;while(rem>0){const a=Math.min(99,rem);lots.push({stone:it.stone,amount:a,price:it.price});rem-=a;}return lots;});const K=cols.reduce((m,c)=>Math.max(m,c.length),0),out=[];for(let t=0;t<K;t++){const row=cols.map(c=>c[t]).filter(Boolean);for(let j=0;j<row.length;j+=5)out.push(row.slice(j,j+5));}return out;}
+function renderBatchBtn(){const el=$("stoneBatch");if(!el)return;const items=selItems();if(!items.length){el.innerHTML='';return;}const listings=packListings(items);el.innerHTML='<button class="mini" onclick="listSelected()">List selected · '+listings.length+' tx</button> <span class="sub">'+items.map(it=>STONE[it.stone][0]+"×"+fmt(it.amount)).join(" · ")+' @ ask−1</span>';}
+async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
+  const items=selItems();if(!items.length){set("s-err","Check stones you hold that have a liquid ask.");return;}
+  const listings=packListings(items);
+  try{
+    const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
+    if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market…");const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
+    let done=0;
+    for(const lots of listings){const dta=encList(lots.map(l=>({id:l.stone,amount:l.amount,price:l.price})));
+      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+listings.length+" listing(s) — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
+      set("s-wait","Listing "+(done+1)+"/"+listings.length+" ("+lots.length+" stone)…");
+      const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
+    ST.listSel.clear();
+    set("s-ok","Listed "+items.map(it=>STONE[it.stone][0]+"×"+fmt(it.amount)).join(", ")+" in "+listings.length+" tx ✓");
+    setTimeout(()=>loadAll(true),4500);
+  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- sell: list ALL of a stone at 1 wei under the (depth-adjusted) best ask ----
 function encList(items){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint256[]","uint256[]"],[items.map(x=>x.id),items.map(x=>x.amount),items.map(x=>BigInt(x.price))]);return S.list+enc.slice(2);}
 async function listAllStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
