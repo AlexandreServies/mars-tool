@@ -124,7 +124,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">held · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones <span class="r">held · listed · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -241,7 +241,7 @@ async function loadCosts(){for(let l=2;l<=MAXLVL;l++){if(COST[l])continue;try{co
 // read live ore market (on-chain, no CORS) + $DRILL/ETH price from the V4 pool
 async function loadMarket(){
   try{const s0=await ethCall(A.poolMgr,S.extsload+POOL_SLOT0.slice(2));const v=BigInt(s0||"0x0"),sqrt=v&((1n<<160n)-1n);const dpw=Number(sqrt*sqrt*10n**18n/(1n<<192n))/1e18;ST.drillEth=dpw?1/dpw:0;}catch(e){ST.drillEth=0;}
-  const bid=Array(12).fill(0),ask=Array(12).fill(0),askWei=Array(12).fill(0n),book=[],ladder=Array.from({length:12},()=>[]);
+  const bid=Array(12).fill(0),ask=Array(12).fill(0),askWei=Array(12).fill(0n),myListed=Array(12).fill(0),book=[],ladder=Array.from({length:12},()=>[]);
   try{
     const lo=Number(BigInt(await ethCall(A.market,S.lastOffer)||"0x0"));
     if(lo>0){const lc=[],oc=[];for(let i=1;i<=lo;i++){lc.push({to:A.market,data:S.offerLive+w(i)});oc.push({to:A.market,data:S.offerOf+w(i)});}
@@ -250,11 +250,11 @@ async function loadMarket(){
     const ll=Number(BigInt(await ethCall(A.market,S.lastListing)||"0x0"));
     for(let s=1;s<=ll;s+=240){const calls=[];for(let i=s;i<Math.min(s+240,ll+1);i++)calls.push({to:A.market,data:S.listingOf+w(i)});
       const ids=calls.map((_,k)=>s+k),dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
-      dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12&&pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});if(amt>=MINLOT)ladder[id].push({price,amt,pw});}}if(lots.length)book.push({id:ids[k],lots});});}
+      dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});if(!isMine&&amt>=MINLOT)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine});});}
   }catch(e){log("market read: "+e.message);}
   // resale price = price at cumulative ask depth >= DEPTH_UNITS, ignoring qty-1 dust listings that set a fake floor
   for(let i=0;i<12;i++){const L=ladder[i].sort((a,b)=>a.price-b.price);let cum=0,px=0,pxw=0n;for(const x of L){cum+=x.amt;px=x.price;pxw=x.pw;if(cum>=DEPTH_UNITS)break;}ask[i]=px;askWei[i]=pxw;}
-  ST.bid=bid;ST.ask=ask;ST.askWei=askWei;ST.book=book;
+  ST.bid=bid;ST.ask=ask;ST.askWei=askWei;ST.myListed=myListed;ST.book=book;
   try{ST.mktAllow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.market)));}catch(e){ST.mktAllow=0n;}}
 // cheapest-first plan to buy `need` = {stoneId: qty}; returns grouped buy calls, wei cost, and any shortfall
 function planBuy(need){const byList={},short={};let costWei=0n;
@@ -322,7 +322,7 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
   if($("rigCardNote"))$("rigCardNote").textContent=mkt?"DRILL find + ore resale":"loading prices…";
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n title='DRILL minted on collect'>DRILL</th><th class=n title='ore resale value'>ore</th><th class=n>×</th><th class=n>/h</th></tr></thead><tbody>"+rows.map(({t,drill,ore,r,ph})=>`<tr${t===best.t?' style="background:#171008"':''}><td>${t.n}${t===best.t?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(drill)}</td><td class="n ${ore?'':'muted'}">${mkt?fmt(ore):'…'}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`).join("")+"</tbody>";
   if($("rigNote"))$("rigNote").innerHTML='Collect mints <b>DRILL ≈ 96% of cost</b> + the ore + a small owner/planter bonus. <span class="grn">Free rigs = pure profit</span> (~'+fmt(rigDrill(TIERS[2]))+' DRILL + ore per free Driller). Paid rigs ≈ break-even — the <b>ore is your margin</b>'+(mkt?', best on <b>'+best.t.n+'</b>':'')+'.';}
-function renderStones(){const mkt=mktReady();$("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Held</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);const act=n>0?(a>0?`<button class="mini" onclick="listAllStone(${i})" title="List all ${fmt(n)} in ${nl} listing${nl>1?'s':''} (99/lot max) — 1 tick under best ask">List @ ${fmt(a,dec)}${nl>1?' ·'+nl+'tx':''}</button>`:'<span class="muted" title="no ask to undercut">—</span>'):'';return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";}
+function renderStones(){const mkt=mktReady();$("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);const act=n>0?(a>0?`<button class="mini" onclick="listAllStone(${i})" title="List all ${fmt(n)} in ${nl} listing${nl>1?'s':''} (99/lot max) — 1 tick under best ask">List @ ${fmt(a,dec)}${nl>1?' ·'+nl+'tx':''}</button>`:'<span class="muted" title="no ask to undercut">—</span>'):'';return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";}
 // ---- sell: list ALL of a stone at 1 wei under the (depth-adjusted) best ask ----
 function encList(items){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint256[]","uint256[]"],[items.map(x=>x.id),items.map(x=>x.amount),items.map(x=>BigInt(x.price))]);return S.list+enc.slice(2);}
 async function listAllStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
