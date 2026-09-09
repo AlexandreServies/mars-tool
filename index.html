@@ -88,7 +88,7 @@
     <div class="row">
       <div style="flex:2"><label>Place free rigs</label>
         <div class="btnrow"><select id="freeTierSel" style="flex:1"><option value="all">All tiers</option><option value="1">Scout</option><option value="2">Hauler</option><option value="3">Driller</option><option value="4">Excavator</option><option value="5">Motherlode</option></select>
-        <input id="freeMax" class="mono" style="width:70px" value="200"><button id="sendFree">Place</button></div></div>
+        <input id="freeMax" class="mono" style="width:60px" value="200"><label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0"><input type="checkbox" id="extChk" checked style="width:auto">others'</label><button id="sendFree">Place</button></div></div>
     </div>
     <div id="freeOut"></div>
     <div class="row" style="margin-top:9px">
@@ -164,6 +164,17 @@ async function cu(to,sel,arg=""){const r=await ethCall(to,sel+arg);return BigInt
 function decArrs(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const o0=parseInt(W(0),16)/32,o1=parseInt(W(1),16)/32;const rd=o=>{const n=parseInt(W(o),16),a=[];for(let k=0;k<n;k++)a.push(parseInt(W(o+1+k),16));return a;};return[rd(o0),rd(o1)];}
 function encCredits(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployManyCredits+w(96)+w(96+pB.length/2)+w(mx)+pB+tB;}
 function encGates(parcels,open){const pB=w(parcels.length)+parcels.map(w).join(""),oB=w(parcels.length)+parcels.map(()=>w(open?1:0)).join("");return S.setGates+w(64)+w(64+pB.length/2)+pB+oB;}
+const MC3="0xcA11bde05977b3631167028862bE2a173976CA11";
+function encAgg3(calls){const tuples=calls.map(c=>{const cd=c.data.replace(/^0x/,"");const cdlen=cd.length/2;const padded=cd+"0".repeat((64-cd.length%64)%64);return wa(c.to)+w(1)+w(96)+w(cdlen)+padded;});const n=tuples.length;let run=n*32,offs="";for(const t of tuples){offs+=w(run);run+=t.length/2;}return "0x82ad56cb"+w(32)+w(n)+offs+tuples.join("");}
+function decAgg3(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const arrOff=parseInt(W(0),16)/32,n=parseInt(W(arrOff),16),base=arrOff+1,res=[];for(let k=0;k<n;k++){const eoff=base+parseInt(W(base+k),16)/32,success=parseInt(W(eoff),16)===1,boff=eoff+parseInt(W(eoff+1),16)/32,blen=parseInt(W(boff),16),bdata="0x"+hex.slice((boff+1)*64,(boff+1)*64+blen*2);res.push({success,data:bdata});}return res;}
+// scan the map for other players' open + empty plots (excludes ids in `own`)
+async function scanExternal(need,own){const TOTAL=5000,BATCH=250,found=[],start=Math.floor(Math.random()*TOTAL);
+  for(let off=0;off<TOTAL&&found.length<need;off+=BATCH){const ids=[];for(let k=0;k<BATCH&&(off+k)<TOTAL;k++)ids.push(((start+off+k)%TOTAL)+1);
+    const calls=[];ids.forEach(id=>{calls.push({to:A.site,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});});
+    let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){continue;}
+    for(let k=0;k<ids.length;k++){const id=ids[k];if(own.has(id))continue;const oc=dec[2*k]||{},op=dec[2*k+1]||{};
+      if(oc.success&&op.success&&BigInt(oc.data||"0x0")===0n&&BigInt(op.data||"0x0")===1n){found.push(id);if(found.length>=need)break;}}}
+  return found;}
 
 async function ensureRobinhood(prov){
   try{const cid=await prov.request({method:"eth_chainId"});if(parseInt(cid,16)===CH_ID)return true;}catch(e){}
@@ -239,15 +250,22 @@ async function simSend(to,data,outEl,okmsg){
   try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
   catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}}
 
-function planFree(){const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
-  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id);
-  const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)],parcels=[],tiers=[];let pi=0;
-  for(const t of order)while(avail[t-1]>0&&pi<empty.length&&parcels.length<cap){parcels.push(empty[pi].id);tiers.push(t);avail[t-1]--;pi++;}
-  return{parcels,tiers,empty:empty.length};}
-async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;const p=planFree();
-  if(!p.parcels.length){o.innerHTML='<div class="status s-err">Nothing to place: '+p.empty+' empty own plots, credits ['+ST.free.join(",")+'].</div>';return;}
-  o.innerHTML='<div class="status s-wait">Placing '+p.parcels.length+' free rigs…</div>';
-  await simSend(A.site,encCredits(p.parcels,p.tiers,0n),o,"Placed "+p.parcels.length+" rigs");}
+async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;
+  const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
+  const ext=$("extChk")&&$("extChk").checked;
+  const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)];
+  const credits=order.reduce((s,t)=>s+avail[t-1],0);
+  const nWant=Math.min(cap,credits);
+  if(!nWant){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
+  let targets=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id).map(p=>p.id).slice(0,nWant);
+  let extN=0;
+  if(targets.length<nWant&&ext){o.innerHTML='<div class="status s-wait">Scanning others\' open plots…</div>';
+    const own=new Set(ST.plots.map(p=>p.id));const found=await scanExternal(nWant-targets.length,own);extN=found.length;targets=targets.concat(found);}
+  if(!targets.length){o.innerHTML='<div class="status s-err">Nowhere to place: 0 empty own plots'+(ext?', no open external plots found either':' (enable “others’” to use open plots)')+'.</div>';return;}
+  const parcels=[],tiers=[];let ti=0;const av=avail.slice();
+  for(const t of order)while(av[t-1]>0&&ti<targets.length&&parcels.length<cap){parcels.push(targets[ti]);tiers.push(t);av[t-1]--;ti++;}
+  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' rigs ('+(parcels.length-extN)+' own, '+extN+' others\')…</div>';
+  await simSend(A.site,encCredits(parcels,tiers,0n),o,"Placed "+parcels.length+" rigs ("+extN+" external)");}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
   if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
