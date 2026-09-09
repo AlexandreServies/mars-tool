@@ -77,39 +77,35 @@
       <div class="stat"><div class="l">Weight</div><div class="v gold" id="mShare">—</div><div class="x" id="mWeight"></div></div>
       <div class="stat"><div class="l">$DRILL</div><div class="v" id="mDrill">—</div></div>
       <div class="stat"><div class="l">Stones val</div><div class="v" id="mStoneVal">—</div></div>
+      <div class="stat"><div class="l">Rigs out</div><div class="v" id="mRigs">—</div><div class="x" id="mRigsX"></div></div>
       <div class="stat"><div class="l">Free rigs</div><div class="v drill" id="mFree">—</div><div class="x" id="mFreeX"></div></div>
-      <div class="stat"><div class="l">Plantable</div><div class="v" id="mEmpty">—</div><div class="x" id="mEmptyX"></div></div>
+      <div class="stat"><div class="l">Empty plots</div><div class="v" id="mEmpty">—</div><div class="x" id="mEmptyX"></div></div>
     </div>
   </div>
 
-  <!-- ACTIONS -->
+  <!-- DEPLOY -->
   <div class="card" id="actCard" hidden>
-    <h2>Actions</h2>
-    <div class="row">
-      <div style="flex:2"><label>Place free rigs</label>
-        <div class="btnrow"><select id="freeTierSel" style="flex:1"><option value="all">All tiers</option><option value="1">Scout</option><option value="2">Hauler</option><option value="3">Driller</option><option value="4">Excavator</option><option value="5">Motherlode</option></select>
-        <input id="freeMax" class="mono" style="width:60px" value="200"><label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0"><input type="checkbox" id="extChk" checked style="width:auto">others'</label><button id="sendFree">Place</button></div></div>
+    <h2>Deploy rigs <span class="r" id="rigCap">—</span></h2>
+    <div class="btnrow">
+      <select id="depTier" style="flex:2;min-width:150px"></select>
+      <input id="depN" class="mono" style="width:56px" value="10" inputmode="numeric">
+      <label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0"><input type="checkbox" id="depExt" checked style="width:auto">others'</label>
+      <button id="depBtn">Place</button>
+      <button class="sec" id="depApprove" title="Approve DRILL for paid rigs">Approve</button>
     </div>
-    <div id="freeOut"></div>
-    <div class="row" style="margin-top:9px">
-      <div><label>Upgrade plot (burns stones)</label>
+    <div class="sub" id="depEcon" style="margin-top:6px"></div>
+    <div id="depOut"></div>
+    <div class="row" style="margin-top:11px">
+      <div><label>Upgrade plot (burns ore)</label>
         <div class="btnrow"><select id="upSel" style="flex:1"></select><button id="upBtn">Upgrade</button></div>
         <div class="sub" id="upCost"></div></div>
       <div><label>Gates</label>
         <div class="btnrow"><button class="sec" id="openAll">Open all</button><button class="sec" id="closeAll">Close all</button></div></div>
-      <div><label>Collect trays</label>
-        <button class="ghost" id="collectBtn">↗ Collect in game</button>
-        <div class="sub">on-chain reveal is operator-signed — collect on the site</div></div>
+      <div><label>Collect trays (in-game)</label>
+        <button class="ghost" id="collectBtn">↗ Collect on site</button>
+        <div class="sub" id="collectSub">reveal is operator-signed — collect on the site</div></div>
     </div>
     <div id="actOut"></div>
-    <details><summary>Paid rigs</summary>
-      <div class="row" style="margin-top:7px">
-        <div><label>Tier</label><select id="paidTier"><option value="1">Scout·50</option><option value="2">Hauler·125</option><option value="3" selected>Driller·350</option><option value="4">Excavator·900</option><option value="5">Motherlode·2500</option></select></div>
-        <div><label>Count</label><input id="paidN" class="mono" value="1"></div>
-        <div><label>Max DRILL</label><input id="paidMax" class="mono" value="0"></div>
-        <div style="display:flex;align-items:flex-end;gap:6px"><button class="sec" id="approveBtn">Approve</button><button id="sendPaid">Place</button></div>
-      </div><div id="paidOut"></div>
-    </details>
   </div>
 
   <!-- PORTFOLIO -->
@@ -142,12 +138,19 @@ const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",plots:"0x1AcD1E34526b
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
 const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
-  plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf"};
+  plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
+  siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46"};
+const RIGCAP=100;
+// owner-bonus % of a rig's find, by plot level (on-chain groundBpsAt). planter gets 25% of this.
+const OWNBONUS=[0,1.00,1.10,1.20,1.30,1.40,1.50,1.60,1.75,1.90,2.05,2.20,2.35,2.50,2.65,2.80,3.00,3.30,3.70,4.30,5.00];
+// plot weight (share of ETH swap-fee deposits), by level (on-chain plotWeightAt)
+const WEIGHTAT=[0,1,2,3,5,7,9,12,16,20,26,33,40,49,59,69,81,94,108,124,195];
 const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a60"],["Copper",4,"#c8783c"],["Nickel",6,"#9aa3a8"],["Silver",12,"#d8dde2"],["Gold",30,"#f0c040"],["Platinum",60,"#e6eaf0"],["Iridium",120,"#b8a0ff"],["Mars Glass",250,"#5ce0a0"],["Diamond",800,"#9fe8ff"],["Core Blue",5000,"#3b7dff"]];
-const TIERS=[{t:1,n:"Scout",c:50,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
+const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
 const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*STONE[i][1],0);
+const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n};
 let PROV=null; let COST={}; // level -> {ids,amts}
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -224,25 +227,32 @@ async function loadAll(){try{
   setS("Loading plots…","s-wait");
   const ids=await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
-  const plots=[];for(let i=0;i<ids.length;i+=25){plots.push(...await Promise.all(ids.slice(i,i+25).map(async id=>{const a=w(id);const[occ,open,slots]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n),cu(A.site,S.slotsOf,a).catch(()=>100n)]);return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:Number(slots)||100};})));}
+  // occupant==0 = truly empty & plantable. A finished rig keeps occupant=driller until collected,
+  // so occupant!=0 = has a rig (running OR finished-uncollected). The real deploy blocker is the 100-rig cap.
+  const plots=[];for(let i=0;i<ids.length;i+=25){plots.push(...await Promise.all(ids.slice(i,i+25).map(async id=>{const a=w(id);const[occ,open]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n)]);return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:WEIGHTAT[levels[id]||1]||1};})));}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
-  // occupant==0 covers BOTH truly-empty and finished-but-uncollected (slot still held).
-  // probe own empties with a held credit to split "plantable" from "ready→collect".
-  let ready=0;const probeTier=(ST.free.findIndex(n=>n>0)+1)||0;
-  if(probeTier){const emptyIds=plots.filter(p=>p.empty).map(p=>p.id).slice(0,120),readySet=new Set(),CH=18;
-    for(let i=0;i<emptyIds.length;i+=CH){const chunk=emptyIds.slice(i,i+CH);
-      const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encCredits([id],[probeTier],0n),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false};}}));
-      res.forEach(r=>{if(!r.ok)readySet.add(r.id);});}
-    plots.forEach(p=>{if(readySet.has(p.id)){p.ready=true;p.empty=false;}});ready=readySet.size;}
-  const empty=plots.filter(p=>p.empty).length,busy=plots.filter(p=>!p.empty&&!p.ready).length,openN=plots.filter(p=>p.open).length;
+  // active rigs (own + others' plots): siteOf(addr)=rig rows[tier,parcel,since,revealBlk,nonce], siteTiming(addr)=readyAt[]
+  try{const[soRaw,stRaw]=await Promise.all([ethCall(A.site,S.siteOf+arg),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x")]);
+    const rows=decRows(soRaw,5),rdy=decUintArr(stRaw),now=Math.floor(Date.now()/1000);
+    ST.rigs=rows.map((r,i)=>({tier:Number(r[0]),parcel:Number(r[1]),readyAt:Number(rdy[i]||0)}));
+    ST.active=ST.rigs.length;ST.ready=ST.rigs.filter(r=>r.readyAt&&r.readyAt<=now).length;
+    const fut=ST.rigs.filter(r=>r.readyAt&&r.readyAt>now).map(r=>r.readyAt);ST.nextAt=fut.length?Math.min(...fut):0;
+  }catch(e){ST.rigs=[];ST.active=0;ST.ready=0;ST.nextAt=0;}
+  try{ST.allow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.site)));}catch(e){ST.allow=0n;}
+  const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty,openN=plots.filter(p=>p.open).length,openEmpty=plots.filter(p=>p.empty&&p.open).length;
   $("mPlots").textContent=plots.length;$("mPlotsX").textContent=openN+" open · "+busy+" rig";
-  $("mEmpty").textContent=empty;$("mEmptyX").innerHTML=ready?'<span class="gold">'+ready+' ready → collect</span>':'';$("mWeight").textContent=fmt(ST.myWeight)+" wt";
+  $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
+  $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
-  renderPort();fillUpSel();loadCosts().then(fillUpSel);
-  setS("Loaded · "+plots.length+" plots, "+empty+" plantable"+(ready?", "+ready+" ready→collect":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
+  renderPort();renderDeploy();fillUpSel();loadCosts().then(fillUpSel);
+  setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
 }catch(e){setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}}
+function fmtMin(sec){if(sec<=0)return "now";const m=Math.round(sec/60);return m<60?m+"m":Math.floor(m/60)+"h"+(m%60?(m%60)+"m":"");}
+function rigLine(){const now=Math.floor(Date.now()/1000),s=[];if(ST.active>=RIGCAP)s.push('<span class="gold">FULL</span>');if(ST.ready)s.push('<span class="grn">'+ST.ready+' ready</span>');if(ST.nextAt)s.push("next "+fmtMin(ST.nextAt-now));return s.join(" · ");}
+function decRows(hex,n){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const off=parseInt(W(0),16)/32,len=parseInt(W(off),16),rows=[];for(let i=0;i<len;i++){const r=[];for(let k=0;k<n;k++)r.push(BigInt("0x"+W(off+1+i*n+k)));rows.push(r);}return rows;}
+function decUintArr(hex){if(!hex||hex==="0x")return[];hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const off=parseInt(W(0),16)/32,len=parseInt(W(off),16),a=[];for(let i=0;i<len;i++)a.push(BigInt("0x"+W(off+1+i)));return a;}
 
-function renderRig(){$("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>E[val]</th><th class=n>×</th></tr></thead><tbody>"+TIERS.map(t=>{const ev=rigEV(t),r=ev/t.c;return `<tr><td>${t.n}</td><td class=n>${t.c}</td><td class=n>${fmt(ev)}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td></tr>`;}).join("")+"</tbody>";}
+function renderRig(){$("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n>E[find]</th><th class=n>×</th><th class=n>/h·slot</th></tr></thead><tbody>"+TIERS.map(t=>{const ev=rigEV(t),r=ev/t.c,ph=(ev-t.c)/t.h;return `<tr><td>${t.n}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(ev)}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`;}).join("")+"</tbody>";}
 function renderStones(){$("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Val</th><th class=n>Held</th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0;return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class=n>${s[1]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td></tr>`;}).join("")+"</tbody>";}
 function stonesEnough(lvl){const c=COST[lvl];if(!c)return null;return c.ids.every((id,k)=>ST.stones[id]>=c.amts[k]);}
 function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=>c.amts[k]+"×"+STONE[id][0]).join(", ");}
@@ -252,7 +262,7 @@ function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.op
     p.map(x=>{const can=ST.canSign&&x.level<MAXLVL&&stonesEnough(x.level+1);
     return `<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
       <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
-      <td class=n>${x.weight}</td><td>${x.ready?'<span class="tag" style="background:#2a2410;color:var(--gold)">ready ↗</span>':x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
+      <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
       <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";}
 function fillUpSel(){const opts=ST.plots.filter(p=>p.level<MAXLVL).sort((a,b)=>a.level-b.level||a.id-b.id).map(p=>{const ok=stonesEnough(p.level+1);return `<option value="${p.id}" data-lvl="${p.level}">#${p.id} L${p.level}→${p.level+1}${ok===true?' ✓':ok===false?' ✗':''}</option>`;}).join("");$("upSel").innerHTML=opts||'<option>—</option>';upSelChanged();}
 function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)return;const lvl=Number(o.dataset.lvl);$("upCost").innerHTML=COST[lvl+1]?("Cost L"+(lvl+1)+": "+costStr(lvl+1)+(stonesEnough(lvl+1)?' <span class=grn>✓ have</span>':' <span class=red>✗ short</span>')):"…";}
@@ -282,33 +292,55 @@ function packAscending(idsPriority,avail,order){const av=avail.slice(),pairs=[];
   for(const t of order)while(av[t-1]>0&&gi<idsPriority.length){pairs.push({id:idsPriority[gi],tier:t});av[t-1]--;gi++;}
   pairs.sort((a,b)=>a.id-b.id);return{parcels:pairs.map(p=>p.id),tiers:pairs.map(p=>p.tier)};}
 const reasonStr=r=>Object.entries(r).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>k+" ×"+v).join(" · ");
-async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;
-  const sel=$("freeTierSel").value,capIn=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
-  const ext=$("extChk")&&$("extChk").checked;
-  const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)];
-  const credits=order.reduce((s,t)=>s+avail[t-1],0),want=Math.min(capIn,credits);
-  if(!want){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
-  const probeTier=order.find(t=>avail[t-1]>0);const own=new Set(ST.plots.map(p=>p.id));
+// ---- unified deploy (free credits used first, then paid DRILL; respects the 100-rig cap) ----
+function renderDeploy(){const capLeft=Math.max(0,RIGCAP-ST.active);
+  $("rigCap").innerHTML=ST.active+"/"+RIGCAP+" rigs"+(capLeft?' · '+capLeft+' free':' · <span class="gold">FULL</span>');
+  const cur=parseInt($("depTier").value)||3;
+  $("depTier").innerHTML=TIERS.map(t=>{const ev=rigEV(t),fr=ST.free[t.t-1]||0;return `<option value="${t.t}"${t.t===cur?' selected':''}>${t.n} · ${t.c} DRILL · ${fmtDur(t.h)} · ${(ev/t.c).toFixed(2)}×${fr?` · ${fr} free`:''}</option>`;}).join("");
+  depEcon();
+  $("collectSub").innerHTML=ST.ready?('<span class="gold">'+ST.ready+' ready to collect</span> · reveal is on-site'):(ST.nextAt?('next in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+' · collect on site'):'reveal is operator-signed — on site');}
+function depEcon(){const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
+  const capLeft=Math.max(0,RIGCAP-ST.active),want=Math.min(n,capLeft),fr=ST.free[t.t-1]||0,freeUse=Math.min(fr,want),paid=want-freeUse,cost=paid*t.c,ev=rigEV(t);
+  let s;
+  if(capLeft<=0)s='<span class="red">At '+RIGCAP+'/'+RIGCAP+' rig cap.</span> '+(ST.ready?ST.ready+' ready — ':'')+(ST.nextAt?'next finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+'Collect (in-game) to free slots.';
+  else{s=want+'× '+t.n+' · '+fmtDur(t.h)+' · ';s+=freeUse?freeUse+' free':'';s+=(freeUse&&paid?' + ':'')+(paid?paid+' paid ('+fmt(cost)+' DRILL)':'');
+    s+=' · ~'+fmt(ev)+' find ea ('+(ev/t.c).toFixed(2)+'×) · rigs '+ST.active+'→'+(ST.active+want)+'/'+RIGCAP;
+    if(paid){const need=BigInt(cost)*10n**18n;if(ST.drill<cost)s+=' · <span class="red">need '+fmt(cost)+' DRILL, have '+fmt(ST.drill)+'</span>';else if(ST.allow<need)s+=' · <span class="gold">tap Approve first</span>';}}
+  $("depEcon").innerHTML=s;}
+async function approveDrill(){const o=$("depOut");if(!await guardChain(o))return;const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
+  const amt=BigInt(t.c*n)*10n**18n;o.innerHTML='<div class="status s-wait">Approving '+fmt(t.c*n)+' DRILL…</div>';
+  try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(amt),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+fmt(t.c*n)+' DRILL ✓ — now tap Place.</div>';ST.allow=amt;setTimeout(loadAll,4000);}
+  catch(e){o.innerHTML='<div class="status s-err">'+decodeErr(e)+'</div>';}}
+async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;
+  const t=parseInt($("depTier").value)||3,tier=TIERS[t-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1)),ext=$("depExt").checked;
+  const capLeft=Math.max(0,RIGCAP-ST.active);
+  if(capLeft<=0){o.innerHTML='<div class="status s-err">At '+RIGCAP+'/'+RIGCAP+' rig cap — every plot reverts until slots free up. '+(ST.nextAt?'Next rig finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+(ST.ready?'<b>'+ST.ready+' ready now</b> — ':'')+'Collect in-game, then Place.</div>';return;}
+  const want=Math.min(n,capLeft),fr=ST.free[t-1]||0,paidCount=Math.max(0,want-fr),perWei=BigInt(tier.c)*10n**18n;
+  if(paidCount>0){const need=BigInt(paidCount*tier.c)*10n**18n;
+    if(ST.drill<paidCount*tier.c){o.innerHTML='<div class="status s-err">Need '+fmt(paidCount*tier.c)+' DRILL for '+paidCount+' paid '+tier.n+', have '+fmt(ST.drill)+'.</div>';return;}
+    if(ST.allow<need){o.innerHTML='<div class="status s-err">Tap <b>Approve</b> first — need '+fmt(paidCount*tier.c)+' DRILL approved (have '+fmt(Number(ST.allow)/1e18)+').</div>';return;}}
+  const own=new Set(ST.plots.map(p=>p.id));
   o.innerHTML='<div class="status s-wait">Finding plantable plots…</div>';
-  // priority pool: own empty (level desc), then external open+empty (level desc)
   let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id);
-  if(pool.length<want&&ext){let found=await scanExternal(want-pool.length+30,own);found=await sortByLevel(found);pool=pool.concat(found);}
-  const okSet=await multicallEmpty(pool);pool=pool.filter(id=>okSet.has(id));
-  if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots'+(ext?'':' — tick “others’”')+'. Or <b>Close all</b> and place on your own.</div>';return;}
+  if(pool.length<want&&ext){let found=await scanExternal(want-pool.length+40,own);found=await sortByLevel(found);pool=pool.concat(found.filter(id=>!pool.includes(id)));}
+  if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots'+(ext?'':' — tick “others’”')+'.</div>';return;}
   o.innerHTML='<div class="status s-wait">Checking '+Math.min(pool.length,want+12)+' plots…</div>';
-  let {good,reasons}=await selectPlantable(pool,want,probeTier,0n);
-  if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts a rig now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'. If it says <i>finished rig</i>, <b>Collect in game</b> to free your slots.</div>';return;}
-  let {parcels,tiers}=packAscending(good,avail,order);
+  const probeWei=paidCount>0?perWei:0n;
+  let {good,reasons}=await selectPlantable(pool,want,t,probeWei);
+  if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts a rig now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'.</div>';return;}
+  const mkAvail=k=>{const a=[0,0,0,0,0];a[t-1]=k;return a;};
+  let {parcels,tiers}=packAscending(good,mkAvail(good.length),[t]);
+  const paidNow=Math.max(0,parcels.length-fr),maxWei=BigInt(paidNow*tier.c)*10n**18n;
   let extN=parcels.filter(id=>!own.has(id)).length;
-  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' ('+extN+' external)…</div>';
-  let data=encCredits(parcels,tiers,0n);
+  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+tier.n+' ('+extN+' external)…</div>';
+  let data=encCredits(parcels,tiers,maxWei);
   try{await ethCall(A.site,data,ST.addr);}
-  catch(e){ // race since probe: re-probe the chosen set once, keep survivors
-    const re=await selectPlantable(parcels,parcels.length,probeTier,0n);
+  catch(e){const re=await selectPlantable(parcels,parcels.length,t,probeWei);
     if(!re.good.length){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e)+'. Tap Place again.</div>';return;}
-    ({parcels,tiers}=packAscending(re.good,avail,order));extN=parcels.filter(id=>!own.has(id)).length;data=encCredits(parcels,tiers,0n);
+    ({parcels,tiers}=packAscending(re.good,mkAvail(re.good.length),[t]));extN=parcels.filter(id=>!own.has(id)).length;
+    const pn=Math.max(0,parcels.length-fr);data=encCredits(parcels,tiers,BigInt(pn*tier.c)*10n**18n);
     try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'… — tap Place for more.</div>';log("TX "+h);setTimeout(loadAll,4500);}
+  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' ('+extN+' external'+(paidNow?', '+paidNow+' paid':'')+') ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
   catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
@@ -319,24 +351,14 @@ window.upgradePlot=upgradePlot;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
-async function approveDrill(){const o=$("paidOut");if(!await guardChain(o))return;const n=Math.max(1,parseInt($("paidN").value)||1),t=parseInt($("paidTier").value);const need=BigInt(TIERS[t-1].c*n)*10n**18n;try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(need),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+(TIERS[t-1].c*n)+' DRILL.</div>';}catch(e){o.innerHTML='<div class="status s-err">'+(e.message||e)+'</div>';}}
-async function sendPaid(){const o=$("paidOut");if(!await guardChain(o))return;const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(200,parseInt($("paidN").value)||1));
-  let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id);if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
-  const perWei=BigInt(TIERS[t-1].c)*10n**18n;o.innerHTML='<div class="status s-wait">Checking plots…</div>';
-  const {good,reasons}=await selectPlantable(pool,n,t,perWei);
-  if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts it now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'. Press <b>Approve</b> first if DRILL isn’t approved.</div>';return;}
-  const avail=[0,0,0,0,0];avail[t-1]=good.length;const {parcels,tiers}=packAscending(good,avail,[t]);
-  const cost=TIERS[t-1].c*parcels.length;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,cost))*10n**18n;
-  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+TIERS[t-1].n+'…</div>';await simSend(A.site,encCredits(parcels,tiers,maxWei),o,"Placed "+parcels.length+"× "+TIERS[t-1].n);}
-
 // ---- wire ----
 try{const s=localStorage.getItem("mars_rpc");if(s)$("rpc").value=s;const p=localStorage.getItem("mars_wcpid");if(p)$("wcpid").value=p;}catch(e){}
 $("rpc").addEventListener("change",e=>{try{localStorage.setItem("mars_rpc",e.target.value.trim());}catch(_){}});
 $("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo").onclick=loadRo;$("refresh").onclick=loadAll;
-$("sendFree").onclick=sendFree;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
+$("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;
+$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
-$("approveBtn").onclick=approveDrill;$("sendPaid").onclick=sendPaid;
 renderRig();
 async function autoReconnect(){let mode;try{mode=localStorage.getItem("mars_conn");}catch(e){}
   if(mode==="injected"&&window.ethereum){try{const acc=await window.ethereum.request({method:"eth_accounts"});if(acc&&acc.length){PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;await ensureRobinhood(window.ethereum).catch(()=>{});await loadAll();}}catch(e){}}
