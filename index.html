@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Mars Strategy Console</title>
 <style>
   :root{--bg:#0e0b0a;--panel:#161211;--panel2:#1d1817;--line:#2a2320;--ink:#f3ece4;
@@ -125,7 +128,7 @@
     </div>
     <div class="btnrow" style="margin-top:10px">
       <button id="planFree">Preview</button>
-      <button id="sendFree" disabled>Simulate &amp; place (wallet)</button>
+      <button id="sendFree">Simulate &amp; place (wallet)</button>
     </div>
     <div id="freeOut"></div>
     <details>
@@ -140,7 +143,7 @@
       <div class="btnrow" style="margin-top:9px">
         <button class="sec" id="approveBtn">1·Approve</button>
         <button class="ghost" id="planPaid">2·Preview</button>
-        <button class="sec" id="sendPaid" disabled>3·Simulate &amp; place</button>
+        <button class="sec" id="sendPaid">3·Simulate &amp; place</button>
       </div>
       <div id="paidOut"></div>
     </details>
@@ -254,13 +257,26 @@ let PROV=null; // active EIP-1193 signer (injected or WalletConnect)
 const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("could not load "+src));document.head.appendChild(s);});}
 
+// ensure the wallet is on Robinhood Chain (4663) — switch, or add it if missing
+async function ensureRobinhood(prov){
+  try{const cid=await prov.request({method:"eth_chainId"});if(parseInt(cid,16)===CH_ID)return true;}catch(e){}
+  try{await prov.request({method:"wallet_switchEthereumChain",params:[{chainId:CH_HEX}]});return true;}
+  catch(e){
+    if(e&&(e.code===4902||/nrecognized|not been added|add this network|Unrecognized chain/i.test(e.message||""))){
+      try{await prov.request({method:"wallet_addEthereumChain",params:[{chainId:CH_HEX,chainName:"Robinhood Chain",
+        nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
+        rpcUrls:[($("rpc").value.trim()||"https://rpc.mainnet.chain.robinhood.com")],
+        blockExplorerUrls:["https://robinhoodchain.blockscout.com"]}]});return true;}
+      catch(e2){setS("Couldn't add Robinhood Chain (4663): "+(e2.message||e2)+". Add it manually in your wallet.","s-err");return false;}
+    }
+    setS("Switch your wallet to Robinhood Chain (4663). "+(e.message||""),"s-err");return false;
+  }
+}
 async function connectInjected(){
   if(!window.ethereum){setS("No injected wallet here (normal on a phone). Use WalletConnect, or open this page inside Rabby's Dapps browser.","s-err");return;}
   try{const acc=await window.ethereum.request({method:"eth_requestAccounts"});
-    let cid=await window.ethereum.request({method:"eth_chainId"});
-    if(parseInt(cid,16)!==CH_ID){try{await window.ethereum.request({method:"wallet_switchEthereumChain",params:[{chainId:CH_HEX}]});}
-      catch(e){setS("Switch your wallet to Robinhood Chain (4663).","s-err");return;}}
-    PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;await loadAll();
+    if(!await ensureRobinhood(window.ethereum))return;
+    PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","injected");}catch(e){}await loadAll();
   }catch(e){setS("Connect failed: "+e.message,"s-err");}
 }
 async function connectWC(){
@@ -280,11 +296,13 @@ async function connectWC(){
     setS("Opening WalletConnect — approve in your Rabby app…","s-wait");
     const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,
       rpcMap:{[CH_ID]:rpcUrl},metadata:{name:"Mars Strategy Console",description:"Project Mars optimizer",url:location.href,icons:[]}});
-    wc.on("disconnect",()=>{PROV=null;ST.canSign=false;setS("WalletConnect disconnected.","s-err");});
+    wc.on("disconnect",()=>{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}setS("WalletConnect disconnected.","s-err");});
     await wc.connect();
     const acc=wc.accounts&&wc.accounts.length?wc.accounts:await wc.request({method:"eth_accounts"});
     if(!acc||!acc.length){setS("WalletConnect connected but no account returned.","s-err");return;}
-    PROV=wc;ST.addr=acc[0];ST.canSign=true;await loadAll();
+    PROV=wc;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","wc");}catch(e){}
+    await ensureRobinhood(wc).catch(()=>{});
+    await loadAll();
   }catch(e){setS("WalletConnect failed: "+(e.message||e)+" — check the Project ID, or use Rabby's Dapps browser + Injected.","s-err");}
 }
 async function loadRo(){const a=$("addr").value.trim();
@@ -404,8 +422,10 @@ function planFree(){const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200
   if(!parcels.length){$("freeOut").innerHTML=`<div class="status s-err">Nothing to place: ${empty.length} empty, credits [${ST.free.join(",")}].</div>`;return null;}
   const bt={};tiers.forEach(t=>bt[t]=(bt[t]||0)+1);
   $("freeOut").innerHTML=`<div class="status s-ok">Plan: <b>${parcels.length}</b> free rigs (${Object.entries(bt).map(([t,n])=>n+"× "+TIERS[t-1].n).join(", ")}) on ${parcels.slice(0,14).map(x=>"#"+x).join(", ")}${parcels.length>14?"…":""}. Cost 0 DRILL.</div>`;
-  $("sendFree").disabled=!ST.canSign;return{parcels,tiers};}
-async function sendFree(){const p=planFree();if(!p)return;const data=encCredits(p.parcels,p.tiers,0n);
+  return{parcels,tiers};}
+async function sendFree(){
+  if(!ST.canSign){$("freeOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first: tap <b>Injected</b> (in Rabby/MetaMask\'s in-app browser) or <b>WalletConnect</b> above, then place.</div>';return;}
+  const p=planFree();if(!p)return;const data=encCredits(p.parcels,p.tiers,0n);
   try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
   catch(e){setS("Simulation reverted — not sending. "+e.message,"s-err");log("SIM REVERT "+e.message);return;}
   try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});
@@ -421,8 +441,10 @@ function planPaid(){const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(
   if(!take){$("paidOut").innerHTML=`<div class="status s-err">No empty plots.</div>`;return null;}
   const parcels=empty.slice(0,take).map(p=>p.id),tiers=parcels.map(()=>t),cost=TIERS[t-1].c*take;
   $("paidOut").innerHTML=`<div class="status s-ok">${take}× ${TIERS[t-1].n} on ${parcels.slice(0,12).map(x=>"#"+x).join(", ")}${take>12?"…":""} · ~${cost} DRILL. Set Max spend ≥ ${cost} + approve.</div>`;
-  $("sendPaid").disabled=!ST.canSign;return{parcels,tiers,cost};}
-async function sendPaid(){const p=planPaid();if(!p)return;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,p.cost))*10n**18n;
+  return{parcels,tiers,cost};}
+async function sendPaid(){
+  if(!ST.canSign){$("paidOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first.</div>';return;}
+  const p=planPaid();if(!p)return;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,p.cost))*10n**18n;
   const data=encCredits(p.parcels,p.tiers,maxWei);
   try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
   catch(e){setS("Reverted — need approval or DRILL? Not sending. "+e.message,"s-err");return;}
@@ -436,6 +458,26 @@ $("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo"
 $("planFree").onclick=planFree;$("sendFree").onclick=sendFree;
 $("approveBtn").onclick=approveDrill;$("planPaid").onclick=planPaid;$("sendPaid").onclick=sendPaid;
 ST.stones=Array(12).fill(0);renderRig();renderStones();
+// keep the wallet connection alive across refreshes
+async function autoReconnect(){
+  let mode;try{mode=localStorage.getItem("mars_conn");}catch(e){}
+  if(mode==="injected"&&window.ethereum){
+    try{const acc=await window.ethereum.request({method:"eth_accounts"});
+      if(acc&&acc.length){PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;await ensureRobinhood(window.ethereum).catch(()=>{});await loadAll();}}catch(e){}
+  }else if(mode==="wc"){
+    try{const pid=$("wcpid").value.trim();if(!pid)return;
+      if(!(window["@walletconnect/ethereum-provider"]||{}).EthereumProvider)await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js");
+      const g=window["@walletconnect/ethereum-provider"]||{};const EP=g.EthereumProvider||g.default;if(!EP||typeof EP.init!=="function")return;
+      const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,rpcMap:{[CH_ID]:$("rpc").value.trim()},metadata:{name:"Mars Strategy Console",description:"Project Mars optimizer",url:location.href,icons:[]}});
+      wc.on("disconnect",()=>{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}});
+      if(wc.accounts&&wc.accounts.length){PROV=wc;ST.addr=wc.accounts[0];ST.canSign=true;await loadAll();}}catch(e){}
+  }
+}
+if(window.ethereum&&window.ethereum.on){
+  window.ethereum.on("chainChanged",()=>{if(PROV===window.ethereum&&ST.addr)loadAll();});
+  window.ethereum.on("accountsChanged",a=>{if(PROV===window.ethereum){if(a&&a.length){ST.addr=a[0];loadAll();}else{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}}}});
+}
+autoReconnect();
 </script>
 </body>
 </html>
