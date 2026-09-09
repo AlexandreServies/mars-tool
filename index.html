@@ -78,7 +78,7 @@
       <div class="stat"><div class="l">$DRILL</div><div class="v" id="mDrill">—</div></div>
       <div class="stat"><div class="l">Stones val</div><div class="v" id="mStoneVal">—</div></div>
       <div class="stat"><div class="l">Free rigs</div><div class="v drill" id="mFree">—</div><div class="x" id="mFreeX"></div></div>
-      <div class="stat"><div class="l">Empty</div><div class="v" id="mEmpty">—</div></div>
+      <div class="stat"><div class="l">Plantable</div><div class="v" id="mEmpty">—</div><div class="x" id="mEmptyX"></div></div>
     </div>
   </div>
 
@@ -226,12 +226,20 @@ async function loadAll(){try{
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
   const plots=[];for(let i=0;i<ids.length;i+=25){plots.push(...await Promise.all(ids.slice(i,i+25).map(async id=>{const a=w(id);const[occ,open,slots]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n),cu(A.site,S.slotsOf,a).catch(()=>100n)]);return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:Number(slots)||100};})));}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
-  const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty,openN=plots.filter(p=>p.open).length;
+  // occupant==0 covers BOTH truly-empty and finished-but-uncollected (slot still held).
+  // probe own empties with a held credit to split "plantable" from "ready→collect".
+  let ready=0;const probeTier=(ST.free.findIndex(n=>n>0)+1)||0;
+  if(probeTier){const emptyIds=plots.filter(p=>p.empty).map(p=>p.id).slice(0,120),readySet=new Set(),CH=18;
+    for(let i=0;i<emptyIds.length;i+=CH){const chunk=emptyIds.slice(i,i+CH);
+      const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encCredits([id],[probeTier],0n),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false};}}));
+      res.forEach(r=>{if(!r.ok)readySet.add(r.id);});}
+    plots.forEach(p=>{if(readySet.has(p.id)){p.ready=true;p.empty=false;}});ready=readySet.size;}
+  const empty=plots.filter(p=>p.empty).length,busy=plots.filter(p=>!p.empty&&!p.ready).length,openN=plots.filter(p=>p.open).length;
   $("mPlots").textContent=plots.length;$("mPlotsX").textContent=openN+" open · "+busy+" rig";
-  $("mEmpty").textContent=empty;$("mWeight").textContent=fmt(ST.myWeight)+" wt";
+  $("mEmpty").textContent=empty;$("mEmptyX").innerHTML=ready?'<span class="gold">'+ready+' ready → collect</span>':'';$("mWeight").textContent=fmt(ST.myWeight)+" wt";
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   renderPort();fillUpSel();loadCosts().then(fillUpSel);
-  setS("Loaded · "+plots.length+" plots, "+empty+" empty, "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
+  setS("Loaded · "+plots.length+" plots, "+empty+" plantable"+(ready?", "+ready+" ready→collect":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
 }catch(e){setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}}
 
 function renderRig(){$("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>E[val]</th><th class=n>×</th></tr></thead><tbody>"+TIERS.map(t=>{const ev=rigEV(t),r=ev/t.c;return `<tr><td>${t.n}</td><td class=n>${t.c}</td><td class=n>${fmt(ev)}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td></tr>`;}).join("")+"</tbody>";}
@@ -244,7 +252,7 @@ function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.op
     p.map(x=>{const can=ST.canSign&&x.level<MAXLVL&&stonesEnough(x.level+1);
     return `<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
       <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
-      <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
+      <td class=n>${x.weight}</td><td>${x.ready?'<span class="tag" style="background:#2a2410;color:var(--gold)">ready ↗</span>':x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
       <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";}
 function fillUpSel(){const opts=ST.plots.filter(p=>p.level<MAXLVL).sort((a,b)=>a.level-b.level||a.id-b.id).map(p=>{const ok=stonesEnough(p.level+1);return `<option value="${p.id}" data-lvl="${p.level}">#${p.id} L${p.level}→${p.level+1}${ok===true?' ✓':ok===false?' ✗':''}</option>`;}).join("");$("upSel").innerHTML=opts||'<option>—</option>';upSelChanged();}
 function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)return;const lvl=Number(o.dataset.lvl);$("upCost").innerHTML=COST[lvl+1]?("Cost L"+(lvl+1)+": "+costStr(lvl+1)+(stonesEnough(lvl+1)?' <span class=grn>✓ have</span>':' <span class=red>✗ short</span>')):"…";}
