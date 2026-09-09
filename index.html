@@ -156,9 +156,9 @@ const WEIGHTAT=[0,1,2,3,5,7,9,12,16,20,26,33,40,49,59,69,81,94,108,124,195];
 const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a60"],["Copper",4,"#c8783c"],["Nickel",6,"#9aa3a8"],["Silver",12,"#d8dde2"],["Gold",30,"#f0c040"],["Platinum",60,"#e6eaf0"],["Iridium",120,"#b8a0ff"],["Mars Glass",250,"#5ce0a0"],["Diamond",800,"#9fe8ff"],["Core Blue",5000,"#3b7dff"]];
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
 const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*STONE[i][1],0); // catalog reference value
-// realizable SELL value per stone (DRILL) = best live BID (real demand). Asks are ignored here — a single
-// troll listing (e.g. MarsGlass at 10,000) must not inflate a rig's find. 0 if nobody is bidding.
-const oreMkt=i=>(ST.bid&&ST.bid[i])||0;
+// resale value per stone (DRILL) = lowest live ASK (the going price buyers market-buy at); best bid only
+// as a fallback when nothing is listed. No cap — a listing is a listing.
+const oreMkt=i=>{const a=(ST.ask&&ST.ask[i])||0;return a||((ST.bid&&ST.bid[i])||0);};
 const rigEVmkt=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*oreMkt(i),0);
 const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0)));
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
@@ -305,9 +305,9 @@ function decUintArr(hex){if(!hex||hex==="0x")return[];hex=hex.replace(/^0x/,"");
 function minEVlevel(t){if(!mktReady())return null;const base=rigEV(t),mk=rigEVmkt(t);for(let L=1;L<=20;L++)if(mk+base*OWNBONUS[L]/100*1.25>=t.c)return L;return 0;}
 function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const ev=mkt?rigEVmkt(t):rigEV(t);return{t,ev,r:ev/t.c,ph:(ev-t.c)/t.h,mL:minEVlevel(t)};});
   const best=rows.reduce((a,b)=>b.r>a.r?b:a,rows[0]);
-  if($("rigCardNote"))$("rigCardNote").textContent=mkt?"find = ore sold at best bid":"catalog (loading…)";
+  if($("rigCardNote"))$("rigCardNote").textContent=mkt?"find = ore at lowest ask":"catalog (loading…)";
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n>find</th><th class=n>×</th><th class=n>/h</th><th class=n title='min own-plot level for +EV'>+EV≥L</th></tr></thead><tbody>"+rows.map(({t,ev,r,ph,mL})=>`<tr${t===best.t&&mkt?' style="background:#171008"':''}><td>${t.n}${t===best.t&&mkt?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(ev)}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td><td class="n ${mL===null?'muted':mL?'grn':'red'}">${mL===null?'…':mL?('L'+mL):'never'}</td></tr>`).join("")+"</tbody>";
-  if($("rigNote"))$("rigNote").innerHTML=mkt?('Rigs mint <b>ore</b>, not DRILL — find = what that ore sells for at the best bid. '+(rows.every(x=>x.mL===0)?'<span class="red">No level makes paid drilling +EV; free rigs + Motherlode-for-mats only.</span>':'<b>'+best.t.n+'</b> best; +EV≥L = min own-plot level to break even.')):"";}
+  if($("rigNote"))$("rigNote").innerHTML=mkt?('Rigs mint <b>ore</b>, not DRILL — find = what that ore resells for at the lowest ask. '+(rows.every(x=>x.mL===0)?'<span class="red">No level makes paid drilling +EV; free rigs + Motherlode-for-mats only.</span>':'<b>'+best.t.n+'</b> best; +EV≥L = min own-plot level to break even.')):"";}
 function renderStones(){const mkt=mktReady();$("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Held</th><th class=n>Bid</th><th class=n>Ask</th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0;return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td></tr>`;}).join("")+"</tbody>";}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
   if($("mDrillX"))$("mDrillX").textContent=e?"≈ "+fmt(ST.drill*e,3)+" ETH":"";
