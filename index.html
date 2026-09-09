@@ -106,6 +106,9 @@
         <div class="sub" id="collectSub">reveal is operator-signed — collect on the site</div></div>
     </div>
     <div id="actOut"></div>
+    <details id="roiWrap" style="margin-top:8px"><summary>Weight-ROI ladder (selected plot)</summary>
+      <div class="sub" id="roiBest" style="margin:6px 0 3px"></div>
+      <div class="scroll" style="max-height:260px" id="roiTbl"></div></details>
   </div>
 
   <!-- PORTFOLIO -->
@@ -328,7 +331,23 @@ function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)
   else{const plan=planBuy(missing),shortKeys=Object.keys(plan.short),cost=Number(plan.costWei)/1e18;
     if(shortKeys.length)html+=' · <span class=red>'+shortKeys.map(s=>STONE[s][0]).join("/")+' unlisted — mine via Motherlode</span>';
     else html+=' · <span class=gold>buy missing ≈ '+fmt(cost)+' DRILL'+(ST.drillEth?' ('+fmt(cost*ST.drillEth,4)+' ETH)':'')+'</span> · Upgrade auto-buys';}
-  $("upCost").innerHTML=html;}
+  $("upCost").innerHTML=html;renderRoi();}
+// weight-per-DRILL ladder for the selected plot: Δweight vs full material cost at live prices, best value flagged
+function renderRoi(){const o=$("upSel").selectedOptions[0],tbl=$("roiTbl"),bestEl=$("roiBest");if(!tbl)return;
+  if(!o||!o.dataset||!mktReady()){tbl.innerHTML="";if(bestEl)bestEl.textContent=mktReady()?"":"loading market…";return;}
+  const cur=Number(o.dataset.lvl),ws=ST.weightScale||100,tot=ST.totalWeight||1;
+  const rows=[];let cumCost=0,cumWt=0,best=null;
+  for(let L=cur+1;L<=MAXLVL;L++){const c=COST[L];if(!c)continue;
+    const need={};c.ids.forEach((sid,k)=>need[sid]=c.amts[k]);
+    const plan=planBuy(need),mineOnly=Object.keys(plan.short).length>0,cost=Number(plan.costWei)/1e18,dwt=(WEIGHTAT[L]-WEIGHTAT[L-1])*ws;
+    cumCost+=mineOnly?0:cost;cumWt+=dwt;
+    const roi=(!mineOnly&&cost>0)?dwt/cost:null;
+    if(roi!==null&&(!best||roi>best.roi))best={L,roi,dwt,cost};
+    rows.push({L,dwt,cost,roi,mineOnly,cumWt,cumCost});}
+  if(bestEl)bestEl.innerHTML=best?('Best single step: <b>L'+(best.L-1)+'→'+best.L+'</b> +'+fmt(best.dwt)+' wt for '+fmt(best.cost)+' DRILL = <b class=grn>'+fmt(best.roi,1)+' wt/DRILL</b>'):'No buyable upgrade (needs Motherlode mats).';
+  tbl.innerHTML="<table><thead><tr><th>→L</th><th class=n>+wt</th><th class=n>cost</th><th class=n>wt/DRILL</th><th class=n>Σ→L wt</th><th class=n>Σ share+</th></tr></thead><tbody>"+rows.map(r=>{
+    const b=best&&r.L===best.L,good=r.roi&&best&&r.roi>=best.roi*0.6;
+    return `<tr${b?' style="background:#171008"':''}><td>${r.L}${b?' <span class=gold>◄</span>':''}</td><td class=n>${fmt(r.dwt)}</td><td class="n ${r.mineOnly?'muted':''}">${r.mineOnly?'mine':fmt(r.cost)}</td><td class="n ${r.roi?(good?'grn':'red'):'muted'}">${r.roi?fmt(r.roi,1):'–'}</td><td class="n muted">${fmt(r.cumWt)}</td><td class="n muted">+${(100*r.cumWt/tot).toFixed(2)}%</td></tr>`;}).join("")+"</tbody></table>";}
 
 // ---- write actions ----
 async function guardChain(outEl){if(!ST.canSign){outEl.innerHTML='<div class="status s-err">Connect a wallet first.</div>';return false;}
