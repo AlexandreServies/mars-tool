@@ -209,6 +209,10 @@
 
 <script>
 "use strict";
+// WalletConnect's UMD bundle references Node-style globals; define browser-safe shims BEFORE it loads,
+// otherwise it throws on execution and leaves an empty object (the "globals: none" failure).
+window.global=window.global||window;
+window.process=window.process||{env:{},version:'',browser:true,nextTick:function(f){setTimeout(f,0)}};
 const $=id=>document.getElementById(id);
 const CH_ID=4663,CH_HEX="0x1237";
 const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
@@ -271,7 +275,7 @@ async function connectWC(){
       await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js");
     const g=window["@walletconnect/ethereum-provider"]||{};
     const EP=g.EthereumProvider||g.default;
-    if(!EP||typeof EP.init!=="function"){setS("WalletConnect didn't initialize (globals: "+(Object.keys(g).join(",")||"none")+"). Almost always the local-file origin — host this file at https and open that link.","s-err");return;}
+    if(!EP||typeof EP.init!=="function"){setS("WalletConnect library didn't load cleanly (globals: "+(Object.keys(g).join(",")||"none")+"). Check your connection and tap WalletConnect again; if it persists the CDN may be blocked on your network.","s-err");return;}
     const rpcUrl=$("rpc").value.trim();
     setS("Opening WalletConnect — approve in your Rabby app…","s-wait");
     const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,
