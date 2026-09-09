@@ -250,22 +250,34 @@ async function simSend(to,data,outEl,okmsg){
   try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
   catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}}
 
+async function multicallEmpty(ids){const empty=new Set(),B=250;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.map(id=>({to:A.site,data:S.occupantOf+w(id)}));let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const r=dec[k]||{};if(r.success&&BigInt(r.data||"0x0")===0n)empty.add(id);});}return empty;}
 async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;
   const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
   const ext=$("extChk")&&$("extChk").checked;
   const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)];
-  const credits=order.reduce((s,t)=>s+avail[t-1],0);
-  const nWant=Math.min(cap,credits);
+  const credits=order.reduce((s,t)=>s+avail[t-1],0),nWant=Math.min(cap,credits);
   if(!nWant){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
-  let targets=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id).map(p=>p.id).slice(0,nWant);
-  let extN=0;
-  if(targets.length<nWant&&ext){o.innerHTML='<div class="status s-wait">Scanning others\' open plots…</div>';
-    const own=new Set(ST.plots.map(p=>p.id));const found=await scanExternal(nWant-targets.length,own);extN=found.length;targets=targets.concat(found);}
-  if(!targets.length){o.innerHTML='<div class="status s-err">Nowhere to place: 0 empty own plots'+(ext?', no open external plots found either':' (enable “others’” to use open plots)')+'.</div>';return;}
-  const parcels=[],tiers=[];let ti=0;const av=avail.slice();
-  for(const t of order)while(av[t-1]>0&&ti<targets.length&&parcels.length<cap){parcels.push(targets[ti]);tiers.push(t);av[t-1]--;ti++;}
-  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' rigs ('+(parcels.length-extN)+' own, '+extN+' others\')…</div>';
-  await simSend(A.site,encCredits(parcels,tiers,0n),o,"Placed "+parcels.length+" rigs ("+extN+" external)");}
+  const own=new Set(ST.plots.map(p=>p.id));
+  let ownEmpty=ST.plots.filter(p=>p.empty).map(p=>p.id);
+  for(let attempt=1;attempt<=4;attempt++){
+    o.innerHTML='<div class="status s-wait">Finding open plots (try '+attempt+')…</div>';
+    let pool=ownEmpty.slice();
+    if(pool.length<nWant&&ext){const found=await scanExternal(nWant-pool.length+40,own);pool=pool.concat(found);}
+    o.innerHTML='<div class="status s-wait">Validating '+pool.length+' plots…</div>';
+    const okSet=await multicallEmpty(pool);const cand=pool.filter(id=>okSet.has(id));
+    if(!cand.length){o.innerHTML='<div class="status s-err">No open/empty plots free right now'+(ext?'':' — enable “others’”')+'. Tap Place again.</div>';return;}
+    const targets=cand.slice(0,nWant);
+    const parcels=[],tiers=[];let ti=0;const av=avail.slice();
+    for(const t of order)while(av[t-1]>0&&ti<targets.length&&parcels.length<cap){parcels.push(targets[ti]);tiers.push(t);av[t-1]--;ti++;}
+    const extN=parcels.filter(id=>!own.has(id)).length;
+    const data=encCredits(parcels,tiers,0n);
+    try{await ethCall(A.site,data,ST.addr);}
+    catch(e){ownEmpty=[];if(attempt<4){o.innerHTML='<div class="status s-wait">Plots taken — rescanning ('+attempt+'/4)…</div>';continue;}o.innerHTML='<div class="status s-err">Plots kept getting grabbed (contested). Lower the count (e.g. 30) and tap Place again.</div>';return;}
+    o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' rigs ('+extN+' external)…</div>';
+    try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
+    catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}
+    return;
+  }}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
   if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
