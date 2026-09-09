@@ -143,7 +143,7 @@ const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f
 const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
-  siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",
+  siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22"};
 const RIGCAP=100;
 // owner-bonus % of a rig's find, by plot level (on-chain groundBpsAt). planter gets 25% of this.
@@ -160,7 +160,7 @@ const mktReady=()=>ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0));
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
 let PROV=null; let COST={}; // level -> {ids,amts}
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -254,8 +254,8 @@ let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
-  const [drillRaw,freeRaw,twRaw,stoneRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr)]);
-  ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.stones=stoneRaw;
+  const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
+  ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
   ST.free=(ws.length>=7&&parseInt(ws[0],16)===32&&parseInt(ws[1],16)===5?ws.slice(2,7):ws.slice(0,5)).map(x=>parseInt(x||"0",16));
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
@@ -268,7 +268,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   // so occupant!=0 = has a rig (running OR finished-uncollected). The real deploy blocker is the 100-rig cap.
   const plots=[];for(let s=0;s<ids.length;s+=120){const chunk=ids.slice(s,s+120),calls=[];chunk.forEach(id=>{calls.push({to:A.site,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});});
     let dec=[];try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){}
-    chunk.forEach((id,k)=>{const oc=dec[2*k],op=dec[2*k+1];plots.push({id,level:levels[id]||1,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!oc||!oc.success||BigInt(oc.data||"0x0")===0n,weight:WEIGHTAT[levels[id]||1]||1});});}
+    chunk.forEach((id,k)=>{const oc=dec[2*k],op=dec[2*k+1],lv=levels[id]||1;plots.push({id,level:lv,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!oc||!oc.success||BigInt(oc.data||"0x0")===0n,weight:(WEIGHTAT[lv]||1)*(ST.weightScale||100)});});}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
   // active rigs (own + others' plots): siteOf(addr)=rig rows[tier,parcel,since,revealBlk,nonce], siteTiming(addr)=readyAt[]
   try{const[soRaw,stRaw]=await Promise.all([ethCall(A.site,S.siteOf+arg),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x")]);
