@@ -144,7 +144,7 @@ const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",
-  lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf"};
+  lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22"};
 const RIGCAP=100;
 // owner-bonus % of a rig's find, by plot level (on-chain groundBpsAt). planter gets 25% of this.
 const OWNBONUS=[0,1.00,1.10,1.20,1.30,1.40,1.50,1.60,1.75,1.90,2.05,2.20,2.35,2.50,2.65,2.80,3.00,3.30,3.70,4.30,5.00];
@@ -416,7 +416,7 @@ async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id
     let lastH;
     for(let i=0;i<plan.calls.length;i++){const cc=plan.calls[i],data=encBuy(cc.listingId,cc.ids,cc.amounts);
       o.innerHTML='<div class="status s-wait">Buying materials '+(i+1)+'/'+plan.calls.length+' ('+fmt(costD)+' DRILL total)…</div>';
-      try{await ethCall(A.market,data,ST.addr);}catch(e){o.innerHTML='<div class="status s-err">Buy '+(i+1)+' failed (listing changed) — refresh & retry. '+decodeErr(e)+'</div>';return;}
+      try{await ethCall(A.market,data,ST.addr);}catch(e){o.innerHTML='<div class="status s-err">Buy '+(i+1)+'/'+plan.calls.length+' sim reverted: '+decodeErr(e)+' — refresh & retry.</div>';return;}
       try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUY "+lastH);}catch(e){o.innerHTML='<div class="status s-err">Buy rejected: '+decodeErr(e)+'</div>';return;}}
     o.innerHTML='<div class="status s-wait">Materials bought — waiting for confirmation…</div>';await waitTx(lastH);
   }
