@@ -152,7 +152,7 @@ const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
-  lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22"};
+  lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22",buyBatch:"0x9fd46449"};
 const RIGCAP=100;
 const DEPTH_UNITS=10; // resale price = lowest ask reaching this cumulative depth (ignores qty-1 dust asks)
 // owner-bonus % of a rig's find, by plot level (on-chain groundBpsAt). planter gets 25% of this.
@@ -259,11 +259,13 @@ function planBuy(need){const byList={},short={};let costWei=0n;
   for(const sid in need){let q=need[sid]|0;if(q<=0)continue;const opts=[];
     (ST.book||[]).forEach(L=>L.lots.forEach(lot=>{if(lot.stone==sid&&lot.amount>0)opts.push({id:L.id,priceWei:lot.priceWei,amount:lot.amount});}));
     opts.sort((a,b)=>a.priceWei<b.priceWei?-1:a.priceWei>b.priceWei?1:0);
-    for(const o of opts){if(q<=0)break;const take=Math.min(q,o.amount);(byList[o.id]=byList[o.id]||[]).push({stone:+sid,amount:take});costWei+=o.priceWei*BigInt(take);q-=take;}
+    for(const o of opts){if(q<=0)break;const take=Math.min(q,o.amount,255);(byList[o.id]=byList[o.id]||[]).push({stone:+sid,amount:take});costWei+=o.priceWei*BigInt(take);q-=take;}
     if(q>0)short[sid]=q;}
   const calls=Object.entries(byList).map(([id,lots])=>({listingId:+id,ids:lots.map(l=>l.stone),amounts:lots.map(l=>l.amount)}));
   return{calls,costWei,short};}
 function encBuy(listingId,ids,amounts){const a=w(ids.length)+ids.map(w).join(""),b=w(amounts.length)+amounts.map(w).join("");return S.buy+w(listingId)+w(96)+w(96+a.length/2)+a+b;}
+// buyBatch(uint256[] listingIds, uint8[][] ids, uint8[][] amounts) — all listings in one tx (selector verified 0x9fd46449)
+function encBuyBatch(calls){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint8[][]","uint8[][]"],[calls.map(c=>c.listingId),calls.map(c=>c.ids),calls.map(c=>c.amounts)]);return S.buyBatch+enc.slice(2);}
 
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
@@ -458,14 +460,13 @@ async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id
       if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
         try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
         catch(e){err(o,'Approve rejected: '+decodeErr(e));return;}}
-      let lastH,stale=false;
-      for(let i=0;i<plan.calls.length;i++){const cc=plan.calls[i],data=encBuy(cc.listingId,cc.ids,cc.amounts);
-        o.innerHTML='<div class="status s-wait">Buying materials ('+fmt(costD)+' DRILL)… '+(i+1)+'/'+plan.calls.length+'</div>';
-        try{await ethCall(A.market,data,ST.addr);}
-        catch(e){const reason=decodeErr(e);if(/re-planning/.test(reason)){stale=true;break;}err(o,'Buy reverted: '+reason);return;}
-        try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUY "+lastH);}catch(e){err(o,'Buy rejected: '+decodeErr(e));return;}}
+      let lastH,stale=false;const data=encBuyBatch(plan.calls); // all listings in ONE tx
+      o.innerHTML='<div class="status s-wait">Buying materials — 1 tx, '+plan.calls.length+' listing'+(plan.calls.length>1?'s':'')+' ('+fmt(costD)+' DRILL)…</div>';
+      try{await ethCall(A.market,data,ST.addr);}
+      catch(e){const reason=decodeErr(e);if(/re-planning|listing/.test(reason)){stale=true;}else{err(o,'Buy reverted: '+reason);return;}}
+      if(!stale){try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUYBATCH "+lastH);}catch(e){err(o,'Buy rejected: '+decodeErr(e));return;}}
       if(lastH){o.innerHTML='<div class="status s-wait">Confirming purchase…</div>';await waitTx(lastH);}
-      if(!stale&&!lastH)break; // nothing bought and not stale → give up next check
+      if(!stale&&!lastH)break; // nothing bought and not stale → done
     }
     ST.stones=await stoneBatch(ST.addr);
     if(c.ids.some((sid,k)=>ST.stones[sid]<c.amts[k])){err(o,'Market too thin to fill the order right now — try again shortly.');return;}
