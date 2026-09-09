@@ -364,7 +364,7 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
   const relist=[];let rem=iTotal;while(rem>0){const a=Math.min(99,rem);relist.push({stone:i,amount:a,price:targetWei});rem-=a;}
   for(const o of others){let r=o.amount;while(r>0){const a=Math.min(99,r);relist.push({stone:o.stone,amount:a,price:o.priceWei});r-=a;}}
   const byStone={};for(const l of relist)(byStone[l.stone]=byStone[l.stone]||[]).push(l);
-  const cols=Object.values(byStone),K=Math.max(...cols.map(c=>c.length)),tranches=[];for(let t=0;t<K;t++){const lots=cols.map(c=>c[t]).filter(Boolean);if(lots.length)tranches.push(lots);}
+  const cols=Object.values(byStone),K=Math.max(...cols.map(c=>c.length)),tranches=[];for(let t=0;t<K;t++){const row=cols.map(c=>c[t]).filter(Boolean);for(let j=0;j<row.length;j+=5)tranches.push(row.slice(j,j+5));}  // <=5 distinct stones per listing (on-chain cap)
   const nTx=mineI.length+tranches.length;
   try{
     const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));

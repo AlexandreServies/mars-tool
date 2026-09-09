@@ -52,6 +52,7 @@ const cfg = {
 };
 const CHAIN = 4663;
 const HAULER = 2, HAULER_COST = 125;                                 // tier index + DRILL cost
+const MAX_LOT = 99, LOTS_PER_LISTING = 5;                            // on-chain caps: <=99 units/lot, <=5 distinct stones/listing
 const STONE_NAMES = ["Sand Rock","Rust","Basalt","Copper","Nickel","Silver","Gold","Platinum","Iridium","Mars Glass","Diamond","Core Blue"];
 
 const A = {
@@ -313,18 +314,20 @@ async function engineMarket() {
   // listing tranche i holds lot i of every stone that still has one -> unique ids, <=99 each, <=maxLots tranches.
   const perStone = targets.map((t) => {
     let rem = Math.min(fresh[t.stone], t.qty); const lots = [];
-    while (rem > 0) { const a = Math.min(99, rem); lots.push({ stone: t.stone, amount: a, price: t.price }); rem -= a; }
+    while (rem > 0) { const a = Math.min(MAX_LOT, rem); lots.push({ stone: t.stone, amount: a, price: t.price }); rem -= a; }
     return lots;
   }).filter((c) => c.length);
   const K = perStone.reduce((m, c) => Math.max(m, c.length), 0);
   if (!K) { log("  nothing to list after cancel"); return; }
-  if (cfg.dry) { log(`  DRY  would list ${perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ")} in ${K} tranche(s)`); return; }
-  for (let i = 0; i < K; i++) {
-    const lots = perStone.map((c) => c[i]).filter(Boolean);
-    if (!lots.length) continue;
-    await tx(A.market, data(S.list, ["uint256[]", "uint256[]", "uint256[]"], [lots.map((l) => l.stone), lots.map((l) => l.amount), lots.map((l) => l.price)]), `list tranche ${i + 1}/${K} (${lots.length} stone)`);
+  // one lot of each stone per depth level; split each level into listings of <=LOTS_PER_LISTING distinct stones (contract caps at 5, reverts 0xfe30bf0c past it)
+  const listTxs = [];
+  for (let i = 0; i < K; i++) { const row = perStone.map((c) => c[i]).filter(Boolean); for (let j = 0; j < row.length; j += LOTS_PER_LISTING) listTxs.push(row.slice(j, j + LOTS_PER_LISTING)); }
+  const summary = perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ");
+  if (cfg.dry) { log(`  DRY  would list ${summary} in ${listTxs.length} tx`); return; }
+  for (let k = 0; k < listTxs.length; k++) { const lots = listTxs[k];
+    await tx(A.market, data(S.list, ["uint256[]", "uint256[]", "uint256[]"], [lots.map((l) => l.stone), lots.map((l) => l.amount), lots.map((l) => l.price)]), `list ${k + 1}/${listTxs.length} (${lots.length} stone)`);
   }
-  log(`  listed ${perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ")} in ${K} tranche(s)`);
+  log(`  listed ${summary} in ${listTxs.length} tx`);
 }
 
 // --------------------------------------------------------------- runtime -----
