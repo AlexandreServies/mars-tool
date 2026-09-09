@@ -158,7 +158,14 @@ const wa=a=>a.replace(/^0x/,"").toLowerCase().padStart(64,"0");
 const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
 const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
-async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error)throw new Error(j.error.message||JSON.stringify(j.error));return j.result;}
+async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error){const er=new Error(j.error.message||JSON.stringify(j.error));er.data=(j.error.data&&j.error.data.data)||j.error.data;throw er;}return j.result;}
+// contract error selectors -> readable reason (from the game's own decoder)
+const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"finished rig not collected — Collect frees it","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet"};
+function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;else if(d&&typeof d.data==="string")hex=d.data;if(!hex){const mm=((e&&e.message)||"").match(/0x[0-9a-fA-F]{8,}/);if(mm)hex=mm[0];}hex=(hex||"").toLowerCase();
+  if(hex.indexOf("0x")===0&&hex.length>=10){const sel=hex.slice(0,10);
+    if(sel==="0x08c379a0"){try{const len=parseInt(hex.slice(74,138),16);const bytes=hex.slice(138,138+len*2);return decodeURIComponent(bytes.replace(/(..)/g,"%$1"));}catch(_){}}
+    if(ERRMAP[sel])return ERRMAP[sel]();return "revert "+sel;}
+  return (e&&e.message)||(""+e);}
 const ethCall=(to,data,from)=>rpc("eth_call",[from?{to,data,from}:{to,data},"latest"]);
 async function cu(to,sel,arg=""){const r=await ethCall(to,sel+arg);return BigInt(r&&r!=="0x"?r:"0x0");}
 function decArrs(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const o0=parseInt(W(0),16)/32,o1=parseInt(W(1),16)/32;const rd=o=>{const n=parseInt(W(o),16),a=[];for(let k=0;k<n;k++)a.push(parseInt(W(o+1+k),16));return a;};return[rd(o0),rd(o1)];}
@@ -246,38 +253,55 @@ function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)
 async function guardChain(outEl){if(!ST.canSign){outEl.innerHTML='<div class="status s-err">Connect a wallet first.</div>';return false;}
   outEl.innerHTML='<div class="status s-wait">Ensuring Robinhood Chain…</div>';if(!await ensureRobinhood(PROV)){outEl.innerHTML='<div class="status s-err">Wallet not on Robinhood Chain (4663). Approve the switch.</div>';return false;}return true;}
 async function simSend(to,data,outEl,okmsg){
-  try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+(e.message||e)+'</div>';return;}
+  try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+decodeErr(e)+'</div>';return;}
   try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
-  catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}}
+  catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
 
 async function multicallEmpty(ids){const empty=new Set(),B=250;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.map(id=>({to:A.site,data:S.occupantOf+w(id)}));let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const r=dec[k]||{};if(r.success&&BigInt(r.data||"0x0")===0n)empty.add(id);});}return empty;}
 // higher-level plots pay a bigger planter bonus, so sort candidates by level descending
 async function sortByLevel(ids){if(ids.length<2)return ids;const lv={};const B=400;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);try{const enc=S.levelsBatch+w(32)+w(chunk.length)+chunk.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=j=>h.slice(j*64,j*64+64);const len=parseInt(W(1),16);for(let j=0;j<len;j++)lv[chunk[j]]=parseInt(W(2+j),16)||1;}catch(e){}}return ids.slice().sort((a,b)=>(lv[b]||1)-(lv[a]||1)||a-b);}
+// eth_call-probe candidates individually to find the ones that actually accept a rig right now
+// (occupant==0 is not enough: a finished-but-uncollected rig still holds the slot -> "No free slots").
+// `want` in level-priority order; returns {good:[ids], reasons:{msg:count}}
+async function selectPlantable(idsPriority,want,tier,maxWei){const good=[],reasons={};
+  const CAP=Math.min(idsPriority.length,Math.max(want+12,want*3,14),96),batch=idsPriority.slice(0,CAP),CH=18;
+  for(let i=0;i<batch.length&&good.length<want;i+=CH){const chunk=batch.slice(i,i+CH);
+    const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encCredits([id],[tier],maxWei),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false,why:decodeErr(e)};}}));
+    for(const r of res){if(r.ok){good.push(r.id);}else{reasons[r.why]=(reasons[r.why]||0)+1;}}}
+  return{good:good.slice(0,want),reasons};}
+// pack ids into {parcels,tiers} using available credits (best tier on highest-priority plot), then sort ASCENDING for the contract
+function packAscending(idsPriority,avail,order){const av=avail.slice(),pairs=[];let gi=0;
+  for(const t of order)while(av[t-1]>0&&gi<idsPriority.length){pairs.push({id:idsPriority[gi],tier:t});av[t-1]--;gi++;}
+  pairs.sort((a,b)=>a.id-b.id);return{parcels:pairs.map(p=>p.id),tiers:pairs.map(p=>p.tier)};}
+const reasonStr=r=>Object.entries(r).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>k+" ×"+v).join(" · ");
 async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;
   const sel=$("freeTierSel").value,capIn=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
   const ext=$("extChk")&&$("extChk").checked;
   const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)];
   const credits=order.reduce((s,t)=>s+avail[t-1],0),want=Math.min(capIn,credits);
   if(!want){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
-  const own=new Set(ST.plots.map(p=>p.id));
-  let size=want;
-  for(let round=0;round<10&&size>=1;round++){
-    o.innerHTML='<div class="status s-wait">Finding '+size+' open plot'+(size>1?'s':'')+'…</div>';
-    let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id).slice(0,size);
-    if(pool.length<size&&ext){let found=await scanExternal(size-pool.length+30,own);found=await sortByLevel(found);pool=pool.concat(found);}
-    const okSet=await multicallEmpty(pool);const cand=pool.filter(id=>okSet.has(id)).slice(0,size);
-    if(!cand.length){o.innerHTML='<div class="status s-err">No open+empty plots free right now'+(ext?'':' — tick “others’”')+'. Tip: <b>Close all</b> then place on your own plots (uncontested).</div>';return;}
-    const parcels=[],tiers=[];let ti=0;const av=avail.slice();
-    for(const t of order)while(av[t-1]>0&&ti<cand.length&&parcels.length<size){parcels.push(cand[ti]);tiers.push(t);av[t-1]--;ti++;}
-    const extN=parcels.filter(id=>!own.has(id)).length;
-    const data=encCredits(parcels,tiers,0n);
-    o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' ('+extN+' external)…</div>';
-    try{await ethCall(A.site,data,ST.addr);}
-    catch(e){size=Math.floor(size/2);continue;}
-    try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'… — tap Place again for more.</div>';log("TX "+h);setTimeout(loadAll,4500);}
-    catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}
-    return;}
-  o.innerHTML='<div class="status s-err">Map is heavily contested — couldn\'t hold a plot. <b>Close all</b> and place on your own plots (they can\'t be snatched when closed), or try again shortly.</div>';}
+  const probeTier=order.find(t=>avail[t-1]>0);const own=new Set(ST.plots.map(p=>p.id));
+  o.innerHTML='<div class="status s-wait">Finding plantable plots…</div>';
+  // priority pool: own empty (level desc), then external open+empty (level desc)
+  let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id);
+  if(pool.length<want&&ext){let found=await scanExternal(want-pool.length+30,own);found=await sortByLevel(found);pool=pool.concat(found);}
+  const okSet=await multicallEmpty(pool);pool=pool.filter(id=>okSet.has(id));
+  if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots'+(ext?'':' — tick “others’”')+'. Or <b>Close all</b> and place on your own.</div>';return;}
+  o.innerHTML='<div class="status s-wait">Checking '+Math.min(pool.length,want+12)+' plots…</div>';
+  let {good,reasons}=await selectPlantable(pool,want,probeTier,0n);
+  if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts a rig now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'. If it says <i>finished rig</i>, <b>Collect in game</b> to free your slots.</div>';return;}
+  let {parcels,tiers}=packAscending(good,avail,order);
+  let extN=parcels.filter(id=>!own.has(id)).length;
+  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' ('+extN+' external)…</div>';
+  let data=encCredits(parcels,tiers,0n);
+  try{await ethCall(A.site,data,ST.addr);}
+  catch(e){ // race since probe: re-probe the chosen set once, keep survivors
+    const re=await selectPlantable(parcels,parcels.length,probeTier,0n);
+    if(!re.good.length){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e)+'. Tap Place again.</div>';return;}
+    ({parcels,tiers}=packAscending(re.good,avail,order));extN=parcels.filter(id=>!own.has(id)).length;data=encCredits(parcels,tiers,0n);
+    try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
+  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'… — tap Place for more.</div>';log("TX "+h);setTimeout(loadAll,4500);}
+  catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
   if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
@@ -289,8 +313,12 @@ window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
 async function approveDrill(){const o=$("paidOut");if(!await guardChain(o))return;const n=Math.max(1,parseInt($("paidN").value)||1),t=parseInt($("paidTier").value);const need=BigInt(TIERS[t-1].c*n)*10n**18n;try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(need),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+(TIERS[t-1].c*n)+' DRILL.</div>';}catch(e){o.innerHTML='<div class="status s-err">'+(e.message||e)+'</div>';}}
 async function sendPaid(){const o=$("paidOut");if(!await guardChain(o))return;const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(200,parseInt($("paidN").value)||1));
-  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id).slice(0,n);if(!empty.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
-  const parcels=empty.map(p=>p.id),tiers=parcels.map(()=>t),cost=TIERS[t-1].c*parcels.length;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,cost))*10n**18n;
+  let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id);if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
+  const perWei=BigInt(TIERS[t-1].c)*10n**18n;o.innerHTML='<div class="status s-wait">Checking plots…</div>';
+  const {good,reasons}=await selectPlantable(pool,n,t,perWei);
+  if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts it now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'. Press <b>Approve</b> first if DRILL isn’t approved.</div>';return;}
+  const avail=[0,0,0,0,0];avail[t-1]=good.length;const {parcels,tiers}=packAscending(good,avail,[t]);
+  const cost=TIERS[t-1].c*parcels.length;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,cost))*10n**18n;
   o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+TIERS[t-1].n+'…</div>';await simSend(A.site,encCredits(parcels,tiers,maxWei),o,"Placed "+parcels.length+"× "+TIERS[t-1].n);}
 
 // ---- wire ----
