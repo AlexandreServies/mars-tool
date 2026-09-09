@@ -4,216 +4,134 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Mars Strategy Console</title>
+<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
+<title>Mars Console</title>
 <style>
   :root{--bg:#0e0b0a;--panel:#161211;--panel2:#1d1817;--line:#2a2320;--ink:#f3ece4;
-    --mut:#9b8c7e;--mut2:#6f6157;--drill:#e8952e;--drill2:#c1440e;--blue:#5aa9cc;
-    --green:#39b56a;--red:#e0533c;--gold:#f0c040}
+    --mut:#9b8c7e;--mut2:#6f6157;--drill:#e8952e;--green:#39b56a;--red:#e0533c;--gold:#f0c040;--blue:#5aa9cc}
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);
-    font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:13.5px;line-height:1.5}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:13.5px;line-height:1.45}
   .mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
-  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 70px}
-  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-  .logo{width:32px;height:32px;border-radius:50%;flex:0 0 auto;
-    background:radial-gradient(8px 8px at 34% 32%,#ffcfa0,transparent 60%),linear-gradient(150deg,#e4572e,#7a2a10);
-    box-shadow:0 0 18px rgba(228,87,46,.4)}
-  h1{font-size:19px;margin:0;font-weight:700}
-  .sub{color:var(--mut);font-size:12px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 15px;margin:11px 0}
-  .card h2{font-size:11.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--mut);margin:0 0 10px;font-weight:600}
+  .wrap{max-width:1080px;margin:0 auto;padding:14px 12px 60px}
+  h1{font-size:17px;margin:0 0 2px;font-weight:700}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin:9px 0}
+  .card h2{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--mut);margin:0 0 8px;font-weight:600}
   .card h2 .r{float:right;color:var(--mut2);font-weight:400;letter-spacing:0;text-transform:none}
-  label{display:block;font-size:10.5px;color:var(--mut);margin:0 0 4px;text-transform:uppercase;letter-spacing:.05em}
-  input,select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
-    color:var(--ink);padding:9px 11px;font-size:13.5px;font-family:inherit}
+  label{display:block;font-size:10px;color:var(--mut);margin:0 0 3px;text-transform:uppercase;letter-spacing:.04em}
+  input,select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:8px 9px;font-size:13.5px;font-family:inherit}
   input:focus,select:focus{outline:none;border-color:var(--drill)}
-  .row{display:flex;gap:10px;flex-wrap:wrap}.row>div{flex:1;min-width:140px}
-  .hint{font-size:10.5px;color:var(--mut2);margin-top:5px}
-  button{background:var(--drill);color:#1a0f08;border:0;border-radius:8px;padding:9px 14px;
-    font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
-  button.ghost{background:transparent;color:var(--drill);border:1px solid var(--drill)}
+  .row{display:flex;gap:8px;flex-wrap:wrap}.row>div{flex:1;min-width:120px}
+  button{background:var(--drill);color:#1a0f08;border:0;border-radius:7px;padding:8px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
   button.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
-  button:disabled{opacity:.45;cursor:default}button:active{transform:translateY(1px)}
-  .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:9px}
-  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 11px}
-  .stat .l{font-size:9.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
-  .stat .v{font-size:19px;font-weight:700;margin-top:2px}
-  .stat .v small{font-size:11px;color:var(--mut);font-weight:400}
-  .stat .x{font-size:10px;color:var(--mut2);margin-top:1px}
-  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
-  th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
-  th{color:var(--mut);font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  button.ghost{background:transparent;color:var(--drill);border:1px solid var(--drill)}
+  button.mini{padding:3px 8px;font-size:11px;border-radius:6px}
+  button:active{transform:translateY(1px)}
+  .btnrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 9px}
+  .stat .l{font-size:9px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  .stat .v{font-size:18px;font-weight:700;margin-top:1px}
+  .stat .v small{font-size:10px;color:var(--mut);font-weight:400}
+  .stat .x{font-size:9.5px;color:var(--mut2)}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:3px}
+  th,td{text-align:left;padding:4px 7px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
   td.n,th.n{text-align:right}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
   .t-open{background:#12341f;color:var(--green)}.t-closed{background:#25211d;color:var(--mut)}
   .t-busy{background:#3a1c16;color:var(--drill)}.t-idle{background:#1a2733;color:var(--blue)}
-  .status{font-size:12px;padding:8px 11px;border-radius:8px;margin-top:9px}
+  .status{font-size:11.5px;padding:7px 10px;border-radius:7px;margin-top:8px}
   .s-ok{background:#12281a;color:#8fe0ab;border:1px solid #24502f}
   .s-err{background:#2a1512;color:#f0a595;border:1px solid #5a2a22}
   .s-wait{background:#20211d;color:var(--mut);border:1px solid var(--line)}
   .muted{color:var(--mut)}.gold{color:var(--gold)}.grn{color:var(--green)}.red{color:var(--red)}
-  pre{background:#0b0908;border:1px solid var(--line);border-radius:8px;padding:9px;overflow:auto;
-    font-size:11px;max-height:160px;margin:8px 0 0;white-space:pre-wrap;word-break:break-all}
-  details{margin-top:9px;border-top:1px solid var(--line);padding-top:9px}
-  summary{cursor:pointer;color:var(--mut);font-size:12px;font-weight:600}
-  .rec{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--drill);
-    border-radius:8px;padding:9px 12px;margin:7px 0;font-size:12.5px}
-  .rec b{color:var(--drill)}
-  .two{display:grid;grid-template-columns:1fr 1fr;gap:11px}
-  @media(max-width:720px){.two{grid-template-columns:1fr}}
-  .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
-  .flow{font-size:12px;line-height:1.7}.flow b{color:var(--drill)}
-  .safebar{background:#1a1410;border:1px solid #3a2c1a;border-radius:8px;padding:8px 11px;margin:12px 0;font-size:11.5px;color:#d8c3a8}
+  pre{background:#0b0908;border:1px solid var(--line);border-radius:7px;padding:8px;overflow:auto;font-size:10.5px;max-height:130px;margin:6px 0 0;white-space:pre-wrap;word-break:break-all}
+  .swatch{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+  details{margin-top:7px;border-top:1px solid var(--line);padding-top:7px}
+  summary{cursor:pointer;color:var(--mut);font-size:11.5px;font-weight:600}
+  .scroll{max-height:340px;overflow:auto}
+  .sub{color:var(--mut);font-size:11px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><div class="logo"></div>
-    <div><h1>Mars Strategy Console</h1><div class="sub">Project Mars · Robinhood Chain (4663) · full-economy optimizer</div></div>
-  </header>
-  <div class="safebar">Signs through your <b>browser wallet</b> (no private key here) and <b>simulates every tx before sending</b>. Reads use your RPC below.</div>
+  <h1>Mars Console</h1><div class="sub">Project Mars · Robinhood Chain 4663</div>
 
   <div class="card">
     <h2>Connect</h2>
-    <label>RPC endpoint (your QuickNode)</label>
+    <label>RPC (your QuickNode)</label>
     <input id="rpc" class="mono" value="https://rpc.mainnet.chain.robinhood.com">
-    <div class="row" style="margin-top:10px">
-      <div style="flex:2"><label>Read-only preview (works anywhere, no wallet)</label>
-        <div class="btnrow"><input id="addr" class="mono" placeholder="0x… your public address"><button class="sec" id="loadRo">Load</button></div></div>
+    <div class="btnrow" style="margin-top:8px">
+      <button id="connectWC">📱 WalletConnect</button>
+      <button class="sec" id="connect">Injected</button>
+      <input id="addr" class="mono" style="flex:1;min-width:150px" placeholder="0x… read-only"><button class="sec" id="loadRo">Load</button>
     </div>
-    <div style="margin-top:12px"><label>Sign transactions — pick how your wallet connects</label>
-      <div class="btnrow">
-        <button id="connectWC">📱 WalletConnect (mobile Rabby)</button>
-        <button class="sec" id="connect">Injected (in-app browser / desktop)</button>
-      </div>
-    </div>
-    <div class="row" style="margin-top:9px">
-      <div style="flex:2"><label>WalletConnect Project ID <span class="muted" style="text-transform:none;letter-spacing:0">— free, one-time, from cloud.reown.com</span></label>
-        <input id="wcpid" class="mono" value="cb64ad1ae1aeb4594ce044973cb7bda3" placeholder="paste your WalletConnect/Reown projectId"></div>
-    </div>
-    <div id="status" class="status s-wait">On a phone: paste your address for the read-only plan now, or use WalletConnect to sign.</div>
-    <div class="hint">📱 <b>Mobile:</b> read-only works in any browser. To place rigs, tap <b>WalletConnect</b> (deep-links to your Rabby app) — needs a free Project ID once. Or open this file inside <b>Rabby → Dapps browser</b> and use <b>Injected</b>.</div>
+    <input id="wcpid" class="mono" style="margin-top:7px" value="cb64ad1ae1aeb4594ce044973cb7bda3" placeholder="WalletConnect projectId">
+    <div id="status" class="status s-wait">Connect a wallet, or paste an address to load read-only.</div>
   </div>
 
-  <!-- STANDING -->
   <div class="card" id="standCard" hidden>
-    <h2>Your standing</h2>
+    <h2>Standing <span class="r"><button class="mini sec" id="refresh">↻ refresh</button></span></h2>
     <div class="grid">
       <div class="stat"><div class="l">Plots</div><div class="v" id="mPlots">—</div><div class="x" id="mPlotsX"></div></div>
-      <div class="stat"><div class="l">Weight share</div><div class="v gold" id="mShare">—</div><div class="x">of ETH deposits</div></div>
-      <div class="stat"><div class="l">$DRILL</div><div class="v" id="mDrill">—</div><div class="x" id="mDrillX"></div></div>
-      <div class="stat"><div class="l">Stones value</div><div class="v" id="mStoneVal">—</div><div class="x">in $DRILL</div></div>
+      <div class="stat"><div class="l">Weight</div><div class="v gold" id="mShare">—</div><div class="x" id="mWeight"></div></div>
+      <div class="stat"><div class="l">$DRILL</div><div class="v" id="mDrill">—</div></div>
+      <div class="stat"><div class="l">Stones val</div><div class="v" id="mStoneVal">—</div></div>
       <div class="stat"><div class="l">Free rigs</div><div class="v drill" id="mFree">—</div><div class="x" id="mFreeX"></div></div>
-      <div class="stat"><div class="l">Empty plots</div><div class="v" id="mEmpty">—</div><div class="x">drillable now</div></div>
+      <div class="stat"><div class="l">Empty</div><div class="v" id="mEmpty">—</div></div>
     </div>
   </div>
 
-  <!-- RECOMMENDATIONS -->
-  <div class="card" id="recCard" hidden>
-    <h2>Do this now <span class="r">ranked by value</span></h2>
-    <div id="recs"></div>
-  </div>
-
-  <!-- ACTION: place free rigs -->
-  <div class="card" id="placeCard" hidden>
-    <h2>Place free rigs <span class="r">free rolls · you keep the owner bonus on your own plots</span></h2>
+  <!-- ACTIONS -->
+  <div class="card" id="actCard" hidden>
+    <h2>Actions</h2>
     <div class="row">
-      <div><label>Tiers to place</label><select id="freeTierSel"><option value="all">All I hold</option>
-        <option value="1">Scout</option><option value="2">Hauler</option><option value="3">Driller</option>
-        <option value="4">Excavator</option><option value="5">Motherlode</option></select></div>
-      <div><label>Max this batch (≤200)</label><input id="freeMax" class="mono" value="200"></div>
-    </div>
-    <div class="btnrow" style="margin-top:10px">
-      <button id="planFree">Preview</button>
-      <button id="sendFree">Simulate &amp; place (wallet)</button>
+      <div style="flex:2"><label>Place free rigs</label>
+        <div class="btnrow"><select id="freeTierSel" style="flex:1"><option value="all">All tiers</option><option value="1">Scout</option><option value="2">Hauler</option><option value="3">Driller</option><option value="4">Excavator</option><option value="5">Motherlode</option></select>
+        <input id="freeMax" class="mono" style="width:70px" value="200"><button id="sendFree">Place</button></div></div>
     </div>
     <div id="freeOut"></div>
-    <details>
-      <summary>Advanced: place PAID rigs (spends DRILL)</summary>
-      <div class="row" style="margin-top:8px">
-        <div><label>Tier</label><select id="paidTier">
-          <option value="1">Scout·50</option><option value="2">Hauler·125</option><option value="3" selected>Driller·350</option>
-          <option value="4">Excavator·900</option><option value="5">Motherlode·2500</option></select></div>
-        <div><label>How many</label><input id="paidN" class="mono" value="1"></div>
-        <div><label>Max spend DRILL</label><input id="paidMax" class="mono" value="0"></div>
-      </div>
-      <div class="btnrow" style="margin-top:9px">
-        <button class="sec" id="approveBtn">1·Approve</button>
-        <button class="ghost" id="planPaid">2·Preview</button>
-        <button class="sec" id="sendPaid">3·Simulate &amp; place</button>
-      </div>
-      <div id="paidOut"></div>
+    <div class="row" style="margin-top:9px">
+      <div><label>Upgrade plot (burns stones)</label>
+        <div class="btnrow"><select id="upSel" style="flex:1"></select><button id="upBtn">Upgrade</button></div>
+        <div class="sub" id="upCost"></div></div>
+      <div><label>Gates</label>
+        <div class="btnrow"><button class="sec" id="openAll">Open all</button><button class="sec" id="closeAll">Close all</button></div></div>
+      <div><label>Collect trays</label>
+        <button class="ghost" id="collectBtn">↗ Collect in game</button>
+        <div class="sub">on-chain reveal is operator-signed — collect on the site</div></div>
+    </div>
+    <div id="actOut"></div>
+    <details><summary>Paid rigs</summary>
+      <div class="row" style="margin-top:7px">
+        <div><label>Tier</label><select id="paidTier"><option value="1">Scout·50</option><option value="2">Hauler·125</option><option value="3" selected>Driller·350</option><option value="4">Excavator·900</option><option value="5">Motherlode·2500</option></select></div>
+        <div><label>Count</label><input id="paidN" class="mono" value="1"></div>
+        <div><label>Max DRILL</label><input id="paidMax" class="mono" value="0"></div>
+        <div style="display:flex;align-items:flex-end;gap:6px"><button class="sec" id="approveBtn">Approve</button><button id="sendPaid">Place</button></div>
+      </div><div id="paidOut"></div>
     </details>
-  </div>
-
-  <div class="two">
-    <!-- RIG ECONOMICS -->
-    <div class="card" id="rigCard">
-      <h2>Rig economics <span class="r">E[stone value] per rig</span></h2>
-      <table id="rigTbl"></table>
-      <div class="hint" id="rigNote"></div>
-    </div>
-    <!-- SELF VS OTHERS -->
-    <div class="card">
-      <h2>Self-drill vs drilling others</h2>
-      <div class="flow">
-        <b>Your own plot:</b> you get the stones + $DRILL find + planter bonus <b>+ the owner bonus</b> — you keep everything.<br>
-        <b>Someone else's open plot:</b> you get stones + find + planter bonus, but the <b>owner bonus goes to them</b>.<br>
-        <b>Others on your open plot:</b> they take the drilling risk, and <b>you</b> collect the owner bonus for free.
-      </div>
-      <div class="rec" style="border-left-color:var(--green);margin-top:9px">
-        <b>Rule:</b> always drill your <b>own</b> plots (full capture), and keep them <b>open</b> so visitors also pay you. Only drill others if their <b>Power Station</b> speed beats yours — none exist yet, so self-drill wins outright.
-      </div>
-    </div>
-  </div>
-
-  <div class="two">
-    <!-- STONES -->
-    <div class="card" id="stoneCard">
-      <h2>Ore / stones <span class="r">held · value · use</span></h2>
-      <table id="stoneTbl"></table>
-      <div class="hint">Value = in-game $DRILL rating. Burn stones to upgrade plot levels (rarer stones for higher levels) or sell them on the market. <span class="muted">Slush is a byproduct with no use yet.</span></div>
-    </div>
-    <!-- RESOURCE FLOW -->
-    <div class="card">
-      <h2>Resource flow</h2>
-      <div class="flow">
-        <b>Rig</b> (costs $DRILL, or free credit) → produces a <b>tray</b>:<br>
-        &nbsp;• <b>Stones</b> → burn to <b>upgrade level</b> → more <b>weight</b> → bigger <b>ETH-deposit share</b> &amp; owner bonus; or <b>sell</b> for DRILL.<br>
-        &nbsp;• <b>$DRILL find</b> → buy rigs / buildings / trade; sell for ETH.<br>
-        &nbsp;• <b>Owner bonus</b> ($DRILL) → to the plot's owner.<br>
-        <b>Level</b> unlocks <b>buildings</b>: Power Station (rig speed, draws drillers), Ore Processor (bigger owner bonus), Satellite (more weight).<br>
-        <b>ETH</b> flows from the DRILL/ETH pool into the treasury, split to plots by <b>weight</b>.
-      </div>
-    </div>
-  </div>
-
-  <!-- HUB STRATEGY -->
-  <div class="card" id="hubCard" hidden>
-    <h2>Attract drillers — hub strategy <span class="r">turn plots into toll booths</span></h2>
-    <div class="flow">A visiting driller keeps their <b>full find on any plot</b>, so the only thing that pulls them to <b>yours</b> is a <b>Power Station</b> (speeds their rig +5/10/20%, visitors included). "Attracting people" = build Power Stations on open plots, then collect the <b>owner bonus</b> every time someone drills them.</div>
-    <div class="flow" style="margin-top:7px"><b>The loop:</b> upgrade a plot to <b>L10</b> (unlocks buildings) → build <b>Power Station</b> (draws drillers) + <b>Ore Processor</b> (bigger owner bonus per visit) + <b>Satellite</b> (more weight) → keep it <b>open</b> → passive $DRILL from every visitor, plus a bigger slice of ETH deposits.</div>
-    <div class="warnbox" style="margin-top:8px">Buildings unlock at <b>level 10</b> — a heavy stone spend (top rungs need rare stones incl. Core Blue), so hubs are a <b>mid-game</b> play. Until you can build a Power Station, "open" only catches <b>random</b> traffic; it doesn't actively attract. Concentrate on <b>a few hubs</b>, not all 60 plots.</div>
-    <div id="hubOut"></div>
   </div>
 
   <!-- PORTFOLIO -->
   <div class="card" id="portCard" hidden>
-    <h2>Your plots <span class="r" id="portR"></span></h2>
-    <div id="portTbl"></div>
+    <h2>Plots <span class="r" id="portR"></span></h2>
+    <div class="scroll" id="portTbl"></div>
+  </div>
+
+  <div class="row">
+    <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
+      <h2>Stones held</h2><table id="stoneTbl"></table>
+    </div>
+    <div class="card" style="flex:1;min-width:260px">
+      <h2>Rig value <span class="r">E[stone]÷cost</span></h2><table id="rigTbl"></table>
+    </div>
   </div>
 
   <div class="card"><h2>Log</h2><pre id="log">—</pre></div>
-  <div class="hint" style="text-align:center">Independent optimizer · not affiliated with Project Mars · not financial advice.</div>
 </div>
 
 <script>
 "use strict";
-// WalletConnect's UMD bundle references Node-style globals; define browser-safe shims BEFORE it loads,
-// otherwise it throws on execution and leaves an empty object (the "globals: none" failure).
 window.global=window.global||window;
 window.process=window.process||{env:{},version:'',browser:true,nextTick:function(f){setTimeout(f,0)}};
 const $=id=>document.getElementById(id);
@@ -221,21 +139,16 @@ const CH_ID=4663,CH_HEX="0x1237";
 const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
   land:"0x8878EA7fc881BFA0a6ECd7266125a664323e4278",ore:"0xd9d674b04a72affe00e06385535eaac10b988fca",
   stones:"0x063bdba5c8c29a57c6530f2668cfd040b1282118",treasury:"0x8C394DEAf48ec1bd11FA297707c96021207ed48E"};
-const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",
-  slotsOf:"0x8ac48a59",levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",
-  deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3"};
-// stone catalog (id,name,drill-value,rarity)
-const STONE=[["Sand Rock",0.5,0,"#8a7d6b"],["Rust",1,0,"#a8532e"],["Basalt",2,0,"#5a5a60"],["Copper",4,1,"#c8783c"],
- ["Nickel",6,1,"#9aa3a8"],["Silver",12,1,"#d8dde2"],["Gold",30,2,"#f0c040"],["Platinum",60,2,"#e6eaf0"],
- ["Iridium",120,3,"#b8a0ff"],["Mars Glass",250,3,"#5ce0a0"],["Diamond",800,4,"#9fe8ff"],["Core Blue",5000,5,"#3b7dff"]];
-const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},
- {t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},
- {t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},
- {t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},
- {t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
-const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/10000*STONE[i][1],0);
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:[],totalWeight:0,myWeight:0,priceEth:0.00028};
+const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
+const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
+  levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
+  plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf"};
+const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a60"],["Copper",4,"#c8783c"],["Nickel",6,"#9aa3a8"],["Silver",12,"#d8dde2"],["Gold",30,"#f0c040"],["Platinum",60,"#e6eaf0"],["Iridium",120,"#b8a0ff"],["Mars Glass",250,"#5ce0a0"],["Diamond",800,"#9fe8ff"],["Core Blue",5000,"#3b7dff"]];
+const TIERS=[{t:1,n:"Scout",c:50,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
+const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*STONE[i][1],0);
+const MAXLVL=20;
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0};
+let PROV=null; let COST={}; // level -> {ids,amts}
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
 const setS=(m,k)=>{const e=$("status");e.className="status "+(k||"s-wait");e.textContent=m;};
@@ -243,243 +156,126 @@ const isAddr=a=>/^0x[0-9a-fA-F]{40}$/.test(a);
 const w=v=>BigInt(v).toString(16).padStart(64,"0");
 const wa=a=>a.replace(/^0x/,"").toLowerCase().padStart(64,"0");
 const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-
-async function rpc(method,params){const url=$("rpc").value.trim();
-  const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});
-  const j=await r.json();if(j.error)throw new Error(j.error.message||JSON.stringify(j.error));return j.result;}
+const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
+async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error)throw new Error(j.error.message||JSON.stringify(j.error));return j.result;}
 const ethCall=(to,data,from)=>rpc("eth_call",[from?{to,data,from}:{to,data},"latest"]);
 async function cu(to,sel,arg=""){const r=await ethCall(to,sel+arg);return BigInt(r&&r!=="0x"?r:"0x0");}
-function encCredits(parcels,tiers,maxWei){const pB=w(parcels.length)+parcels.map(w).join(""),tB=w(tiers.length)+tiers.map(w).join("");
-  return S.deployManyCredits+w(96)+w(96+pB.length/2)+w(maxWei)+pB+tB;}
+function decArrs(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const o0=parseInt(W(0),16)/32,o1=parseInt(W(1),16)/32;const rd=o=>{const n=parseInt(W(o),16),a=[];for(let k=0;k<n;k++)a.push(parseInt(W(o+1+k),16));return a;};return[rd(o0),rd(o1)];}
+function encCredits(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployManyCredits+w(96)+w(96+pB.length/2)+w(mx)+pB+tB;}
+function encGates(parcels,open){const pB=w(parcels.length)+parcels.map(w).join(""),oB=w(parcels.length)+parcels.map(()=>w(open?1:0)).join("");return S.setGates+w(64)+w(64+pB.length/2)+pB+oB;}
 
-// ---- connect ----
-let PROV=null; // active EIP-1193 signer (injected or WalletConnect)
-const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
-function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("could not load "+src));document.head.appendChild(s);});}
-
-// ensure the wallet is on Robinhood Chain (4663) — switch, or add it if missing
 async function ensureRobinhood(prov){
   try{const cid=await prov.request({method:"eth_chainId"});if(parseInt(cid,16)===CH_ID)return true;}catch(e){}
   try{await prov.request({method:"wallet_switchEthereumChain",params:[{chainId:CH_HEX}]});return true;}
-  catch(e){
-    if(e&&(e.code===4902||/nrecognized|not been added|add this network|Unrecognized chain/i.test(e.message||""))){
-      try{await prov.request({method:"wallet_addEthereumChain",params:[{chainId:CH_HEX,chainName:"Robinhood Chain",
-        nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},
-        rpcUrls:[($("rpc").value.trim()||"https://rpc.mainnet.chain.robinhood.com")],
-        blockExplorerUrls:["https://robinhoodchain.blockscout.com"]}]});return true;}
-      catch(e2){setS("Couldn't add Robinhood Chain (4663): "+(e2.message||e2)+". Add it manually in your wallet.","s-err");return false;}
-    }
-    setS("Switch your wallet to Robinhood Chain (4663). "+(e.message||""),"s-err");return false;
-  }
+  catch(e){if(e&&(e.code===4902||/nrecognized|not been added|add this network/i.test(e.message||""))){
+    try{await prov.request({method:"wallet_addEthereumChain",params:[{chainId:CH_HEX,chainName:"Robinhood Chain",nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},rpcUrls:[($("rpc").value.trim()||"https://rpc.mainnet.chain.robinhood.com")],blockExplorerUrls:["https://robinhoodchain.blockscout.com"]}]});return true;}
+    catch(e2){setS("Add Robinhood Chain failed: "+(e2.message||e2),"s-err");return false;}}
+    setS("Switch wallet to Robinhood Chain (4663).","s-err");return false;}
 }
-async function connectInjected(){
-  if(!window.ethereum){setS("No injected wallet here (normal on a phone). Use WalletConnect, or open this page inside Rabby's Dapps browser.","s-err");return;}
-  try{const acc=await window.ethereum.request({method:"eth_requestAccounts"});
-    if(!await ensureRobinhood(window.ethereum))return;
-    PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","injected");}catch(e){}await loadAll();
-  }catch(e){setS("Connect failed: "+e.message,"s-err");}
-}
-async function connectWC(){
-  const pid=$("wcpid").value.trim();
-  if(!pid){setS("Paste a WalletConnect Project ID first (free at cloud.reown.com).","s-err");return;}
+async function connectInjected(){if(!window.ethereum){setS("No injected wallet — use WalletConnect.","s-err");return;}
+  try{const acc=await window.ethereum.request({method:"eth_requestAccounts"});if(!await ensureRobinhood(window.ethereum))return;
+    PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","injected");}catch(e){}await loadAll();}catch(e){setS("Connect failed: "+e.message,"s-err");}}
+async function initWC(){const pid=$("wcpid").value.trim();if(!pid){setS("Paste a WalletConnect projectId.","s-err");return null;}
   try{localStorage.setItem("mars_wcpid",pid);}catch(e){}
-  if(location.protocol!=="https:"&&location.hostname!=="localhost"){
-    setS("⚠ WalletConnect needs a real https page. You opened this as a local file ("+location.protocol+"//…) — an origin where WalletConnect can't run its storage, so it fails to load. Use the read-only box above for your plan and place rigs in the game app, OR host this one file and open the https link (then WalletConnect, or Rabby's Dapps browser + Injected, will work).","s-err");return;}
-  setS("Loading WalletConnect…","s-wait");
-  try{
-    if(!(window["@walletconnect/ethereum-provider"]||{}).EthereumProvider)
-      await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js");
-    const g=window["@walletconnect/ethereum-provider"]||{};
-    const EP=g.EthereumProvider||g.default;
-    if(!EP||typeof EP.init!=="function"){setS("WalletConnect library didn't load cleanly (globals: "+(Object.keys(g).join(",")||"none")+"). Check your connection and tap WalletConnect again; if it persists the CDN may be blocked on your network.","s-err");return;}
-    const rpcUrl=$("rpc").value.trim();
-    setS("Opening WalletConnect — approve in your Rabby app…","s-wait");
-    const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,
-      rpcMap:{[CH_ID]:rpcUrl},metadata:{name:"Mars Strategy Console",description:"Project Mars optimizer",url:location.href,icons:[]}});
-    wc.on("disconnect",()=>{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}setS("WalletConnect disconnected.","s-err");});
-    await wc.connect();
-    const acc=wc.accounts&&wc.accounts.length?wc.accounts:await wc.request({method:"eth_accounts"});
-    if(!acc||!acc.length){setS("WalletConnect connected but no account returned.","s-err");return;}
-    PROV=wc;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","wc");}catch(e){}
-    await ensureRobinhood(wc).catch(()=>{});
-    await loadAll();
-  }catch(e){setS("WalletConnect failed: "+(e.message||e)+" — check the Project ID, or use Rabby's Dapps browser + Injected.","s-err");}
-}
-async function loadRo(){const a=$("addr").value.trim();
-  if(/[0-9a-fA-F]{64}/.test(a)){setS("That is private-key length. Use your PUBLIC address.","s-err");return;}
-  if(!isAddr(a)){setS("Enter a valid 0x address.","s-err");return;}
-  ST.addr=a;ST.canSign=false;await loadAll();}
+  if(!(window["@walletconnect/ethereum-provider"]||{}).EthereumProvider)await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js");
+  const g=window["@walletconnect/ethereum-provider"]||{};const EP=g.EthereumProvider||g.default;if(!EP||typeof EP.init!=="function"){setS("WalletConnect didn't load — retry.","s-err");return null;}
+  const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,rpcMap:{[CH_ID]:$("rpc").value.trim()},metadata:{name:"Mars Console",description:"Project Mars",url:location.href,icons:[]}});
+  wc.on("disconnect",()=>{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}setS("WalletConnect disconnected.","s-err");});return wc;}
+async function connectWC(){try{setS("WalletConnect…","s-wait");const wc=await initWC();if(!wc)return;await wc.connect();
+    const acc=wc.accounts&&wc.accounts.length?wc.accounts:await wc.request({method:"eth_accounts"});if(!acc||!acc.length){setS("No account.","s-err");return;}
+    PROV=wc;ST.addr=acc[0];ST.canSign=true;try{localStorage.setItem("mars_conn","wc");}catch(e){}await ensureRobinhood(wc).catch(()=>{});await loadAll();}catch(e){setS("WalletConnect failed: "+(e.message||e),"s-err");}}
+async function loadRo(){const a=$("addr").value.trim();if(/[0-9a-fA-F]{64}/.test(a)){setS("That's a private key. Use your public address.","s-err");return;}if(!isAddr(a)){setS("Invalid address.","s-err");return;}ST.addr=a;ST.canSign=false;await loadAll();}
 
 async function ownedPlots(addr){const head=parseInt(await rpc("eth_blockNumber",[]),16);const CH=9000,own=new Set(),me="0x"+wa(addr);
-  const scan=async(tp,add)=>{for(let b=DEPLOY_BLOCK;b<=head;b+=CH){const to=Math.min(b+CH-1,head);let r;
-    try{r=await rpc("eth_getLogs",[{fromBlock:"0x"+b.toString(16),toBlock:"0x"+to.toString(16),address:A.land,topics:tp}]);}
-    catch(e){log("log chunk err "+b+": "+e.message);continue;}
-    if(Array.isArray(r))for(const lg of r){const id=parseInt(lg.topics[3],16);add?own.add(id):own.delete(id);}}};
+  const scan=async(tp,add)=>{for(let b=DEPLOY_BLOCK;b<=head;b+=CH){const to=Math.min(b+CH-1,head);let r;try{r=await rpc("eth_getLogs",[{fromBlock:"0x"+b.toString(16),toBlock:"0x"+to.toString(16),address:A.land,topics:tp}]);}catch(e){continue;}if(Array.isArray(r))for(const lg of r){const id=parseInt(lg.topics[3],16);add?own.add(id):own.delete(id);}}};
   await scan([TRANSFER,null,me],true);await scan([TRANSFER,me,null],false);return[...own].sort((a,b)=>a-b);}
+async function stoneBatch(addr){const ids=[...Array(12).keys()];let d=S.balBatch+w(64)+w(64+32*13)+w(12)+ids.map(()=>wa(addr)).join("")+w(12)+ids.map(w).join("");try{const r=await ethCall(A.stones,d);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const out=[];for(let i=0;i<12;i++)out.push(parseInt(W(2+i)||"0",16));return out;}catch(e){return Array(12).fill(0);}}
+async function loadCosts(){for(let l=2;l<=MAXLVL;l++){if(COST[l])continue;try{const r=await ethCall(A.plots,S.costOf+w(l));const[ids,amts]=decArrs(r);COST[l]={ids,amts};}catch(e){}}}
 
 async function loadAll(){try{
-  setS("Reading balances…","s-wait");$("standCard").hidden=false;$("rigCard").hidden=false;renderRig();
+  setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
-  const [drillRaw,ethRaw,freeRaw,twRaw,stoneRaw]=await Promise.all([
-    cu(A.ore,S.balanceOf,arg),rpc("eth_getBalance",[ST.addr,"latest"]),ethCall(A.site,S.freeRigsOf+arg),
-    cu(A.treasury,S.totalWeight), stoneBatch(ST.addr)]);
+  const [drillRaw,freeRaw,twRaw,stoneRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.stones=stoneRaw;
-  // free rigs parse
   let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
   ST.free=(ws.length>=7&&parseInt(ws[0],16)===32&&parseInt(ws[1],16)===5?ws.slice(2,7):ws.slice(0,5)).map(x=>parseInt(x||"0",16));
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
-  $("mDrillX").textContent="≈ "+fmt(ST.drill*ST.priceEth,3)+" ETH";
-  $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);
-  $("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n:"").filter(Boolean).join(" ")||"none";
-  const sv=ST.stones.reduce((a,n,i)=>a+n*STONE[i][1],0);
-  $("mStoneVal").textContent=fmt(sv,0);
-  renderStones();
-
-  setS("Finding your plots…","s-wait");
+  $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);$("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n[0]:"").filter(Boolean).join(" ");
+  const sv=ST.stones.reduce((a,n,i)=>a+n*STONE[i][1],0);$("mStoneVal").textContent=fmt(sv);renderStones();
+  setS("Loading plots…","s-wait");
   const ids=await ownedPlots(ST.addr);
-  // batch levels
-  let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");
-    const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const wo=[];for(let i=0;i<h.length;i+=64)wo.push(h.slice(i,i+64));
-    const len=parseInt(wo[1],16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(wo[2+i],16)||1;}catch(e){log("levels batch err "+e.message);}
-  setS("Reading plot states ("+ids.length+")…","s-wait");
-  const plots=[];for(let i=0;i<ids.length;i+=20){plots.push(...await Promise.all(ids.slice(i,i+20).map(async id=>{
-    const a=w(id);const [occ,open,slots]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n),cu(A.site,S.slotsOf,a).catch(()=>100n)]);
-    return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:Number(slots)||100,occ};})));}
+  let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
+  const plots=[];for(let i=0;i<ids.length;i+=25){plots.push(...await Promise.all(ids.slice(i,i+25).map(async id=>{const a=w(id);const[occ,open,slots]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n),cu(A.site,S.slotsOf,a).catch(()=>100n)]);return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:Number(slots)||100};})));}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
-  const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty;
-  $("mPlots").textContent=plots.length;$("mPlotsX").textContent=plots.filter(p=>p.open).length+" open · "+busy+" with rig";
-  $("mEmpty").textContent=empty;
-  const share=ST.totalWeight?100*ST.myWeight/ST.totalWeight:0;
-  $("mShare").textContent=share.toFixed(2)+"%";
-  renderPort(share);renderHubs();renderRecs(empty,busy,sv);
-  $("recCard").hidden=$("placeCard").hidden=$("stoneCard").hidden=$("portCard").hidden=$("hubCard").hidden=false;
-  setS("Loaded. "+plots.length+" plots ("+empty+" empty), "+ST.free.reduce((a,b)=>a+b,0)+" free rigs. "+(ST.canSign?"Ready.":"Read-only."),"s-ok");
+  const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty,openN=plots.filter(p=>p.open).length;
+  $("mPlots").textContent=plots.length;$("mPlotsX").textContent=openN+" open · "+busy+" rig";
+  $("mEmpty").textContent=empty;$("mWeight").textContent=fmt(ST.myWeight)+" wt";
+  $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
+  renderPort();fillUpSel();loadCosts().then(fillUpSel);
+  setS("Loaded · "+plots.length+" plots, "+empty+" empty, "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
 }catch(e){setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}}
 
-async function stoneBatch(addr){ // balanceOfBatch(address[12], uint256[0..11])
-  const accts=Array(12).fill(0),ids=[...Array(12).keys()];
-  let d=S.balBatch+w(64)+w(64+32*(1+12));
-  d+=w(12)+accts.map(()=>wa(addr)).join("");
-  d+=w(12)+ids.map(w).join("");
-  try{const r=await ethCall(A.stones,d);const h=r.replace(/^0x/,"");const wo=[];for(let i=0;i<h.length;i+=64)wo.push(h.slice(i,i+64));
-    const len=parseInt(wo[1],16);const out=[];for(let i=0;i<12;i++)out.push(parseInt(wo[2+i]||"0",16));return out;}
-  catch(e){log("stone read err "+e.message);return Array(12).fill(0);}
-}
+function renderRig(){$("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>E[val]</th><th class=n>×</th></tr></thead><tbody>"+TIERS.map(t=>{const ev=rigEV(t),r=ev/t.c;return `<tr><td>${t.n}</td><td class=n>${t.c}</td><td class=n>${fmt(ev)}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td></tr>`;}).join("")+"</tbody>";}
+function renderStones(){$("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Val</th><th class=n>Held</th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0;return `<tr><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class=n>${s[1]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td></tr>`;}).join("")+"</tbody>";}
+function stonesEnough(lvl){const c=COST[lvl];if(!c)return null;return c.ids.every((id,k)=>ST.stones[id]>=c.amts[k]);}
+function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=>c.amts[k]+"×"+STONE[id][0]).join(", ");}
+function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);
+  $("portR").textContent=fmt(ST.myWeight)+" wt · "+(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
+  $("portTbl").innerHTML="<table><thead><tr><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th>Rig</th><th></th></tr></thead><tbody>"+
+    p.map(x=>{const can=ST.canSign&&x.level<MAXLVL&&stonesEnough(x.level+1);
+    return `<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
+      <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
+      <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
+      <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";}
+function fillUpSel(){const opts=ST.plots.filter(p=>p.level<MAXLVL).sort((a,b)=>a.level-b.level||a.id-b.id).map(p=>{const ok=stonesEnough(p.level+1);return `<option value="${p.id}" data-lvl="${p.level}">#${p.id} L${p.level}→${p.level+1}${ok===true?' ✓':ok===false?' ✗':''}</option>`;}).join("");$("upSel").innerHTML=opts||'<option>—</option>';upSelChanged();}
+function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset)return;const lvl=Number(o.dataset.lvl);$("upCost").innerHTML=COST[lvl+1]?("Cost L"+(lvl+1)+": "+costStr(lvl+1)+(stonesEnough(lvl+1)?' <span class=grn>✓ have</span>':' <span class=red>✗ short</span>')):"…";}
 
-// ---- renders ----
-function renderRig(){
-  const evs=TIERS.map(rigEV);const best=Math.max(...TIERS.map(t=>rigEV(t)/t.c));
-  $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n>E[value]</th><th class=n>Return</th><th>Reaches</th></tr></thead><tbody>"+
-    TIERS.map((t,i)=>{const ev=evs[i],r=ev/t.c;const top=STONE[[...t.odds.keys()].filter(k=>t.odds[k]>0).pop()][0];
-    return `<tr><td><b>${t.n}</b></td><td class=n>${t.c}</td><td class=n>${t.h}h</td><td class=n>${fmt(ev)}</td>
-      <td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}×</td><td class=muted>${top}</td></tr>`;}).join("")+"</tbody>";
-  $("rigNote").innerHTML="Return = expected stone value ÷ cost. <b>Lower tiers are most DRILL-efficient</b> (Scout ~1.8×); use <b>Motherlode</b> only to hunt Diamond / Core Blue for high-level upgrades. Free credits get this value at <b>zero cost</b>.";
-}
-function renderStones(){
-  $("stoneTbl").innerHTML="<thead><tr><th>Stone</th><th class=n>Value</th><th class=n>Held</th><th class=n>Worth</th></tr></thead><tbody>"+
-    STONE.map((s,i)=>{const n=ST.stones[i]||0;return `<tr><td><span class="swatch" style="background:${s[3]}"></span>${s[0]} <span class="muted">r${s[2]}</span></td>
-      <td class=n>${s[1]}</td><td class=n>${n?fmt(n):'<span class=muted>0</span>'}</td><td class=n>${n?fmt(n*s[1]):''}</td></tr>`;}).join("")+"</tbody>";
-}
-function renderPort(share){
-  const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);
-  $("portR").textContent=fmt(ST.myWeight)+" weight · "+share.toFixed(2)+"% of "+fmt(ST.totalWeight);
-  $("portTbl").innerHTML="<table><thead><tr><th>Plot</th><th class=n>Lvl</th><th>Gate</th><th class=n>Weight</th><th>Rig</th></tr></thead><tbody>"+
-    p.slice(0,80).map(x=>`<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
-      <td>${x.open?'<span class="tag t-open">open</span>':'<span class="tag t-closed">gated</span>'}</td>
-      <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig — collect in app</span>'}</td></tr>`).join("")+
-    "</tbody></table>"+(p.length>80?`<div class=hint>…and ${p.length-80} more.</div>`:"");
-}
-function renderHubs(){
-  const open=ST.plots.filter(p=>p.open).sort((a,b)=>b.level-a.level||a.id-b.id);
-  if(!open.length){$("hubOut").innerHTML=`<div class=hint>You have no open plots — open a few to make them hub candidates (visitors can only drill open plots).</div>`;return;}
-  const cands=open.slice(0,6),buildable=open.filter(p=>p.level>=10).length;
-  $("hubOut").innerHTML=`<div class=hint style="margin-bottom:4px">Best hub candidates — your open plots by level. Power Station (the driller magnet) unlocks at <b>L10</b>:</div>`+
-    `<table><thead><tr><th>Plot</th><th class=n>Level</th><th class=n>Rungs to L10</th><th>Status</th></tr></thead><tbody>`+
-    cands.map(p=>`<tr><td class=mono>#${p.id}</td><td class=n>${p.level}</td><td class=n>${Math.max(0,10-p.level)}</td>
-      <td>${p.level>=10?'<span class="tag t-open">build Power Station now</span>':'<span class="tag t-closed">upgrade to unlock buildings</span>'}</td></tr>`).join("")+
-    `</tbody></table>`+
-    (buildable?`<div class=hint><b>${buildable}</b> plot(s) can already build. Add a Power Station + Ore Processor and keep them open.</div>`
-      :`<div class=hint>None can build yet (all below L10). Farm free rigs → stockpile stones → push your top ${Math.min(3,cands.length)} plots to L10, then build.</div>`);
-}
-function renderRecs(empty,busy,stoneVal){
-  const totalFree=ST.free.reduce((a,b)=>a+b,0);const R=[];
-  if(totalFree>0&&empty>0){const n=Math.min(totalFree,empty);
-    R.push(`<b>Place ${n} free rig${n>1?'s':''} now</b> on your empty plots — 0 DRILL, ~${fmt(TIERS[2].tray*TIERS[2].odds.reduce((a,o,i)=>a+o/1e4*STONE[i][1],0))} DRILL of stones each for a Driller, and you keep the owner bonus. Use the panel below.`);}
-  if(totalFree>empty&&busy>0)R.push(`You hold <b>${totalFree} free rigs</b> but only ${empty} empty plots — <b>collect finished rigs in the app</b> to free slots, then place the remaining ${totalFree-empty}.`);
-  if(busy>0)R.push(`<b>${busy} plot${busy>1?'s have':' has a'} rig</b> — collect finished trays in-app to claim stones + $DRILL find (owner bonus auto-pays you).`);
-  if(stoneVal>0)R.push(`You hold stones worth ~<b>${fmt(stoneVal)} DRILL</b> — burn them to upgrade your top plots toward <b>level 10</b> (unlocks buildings), or sell on the market.`);
-  R.push(`Grow your <b>${(100*ST.myWeight/ST.totalWeight).toFixed(2)}% weight share</b>: upgrade a few plots high rather than all evenly — weight decides your slice of ETH deposits.`);
-  R.push(`<b>To attract drillers:</b> push a few open plots to <b>L10</b> to unlock a <b>Power Station</b> — the only thing that actively pulls visitors (and their owner-bonus payments) to your land. See the hub-strategy panel.`);
-  R.push(`Most efficient rig = <b>Scout (1.8×)</b>; <b>Motherlode</b> only to hunt Diamond/Core Blue. Always drill your <b>own open</b> plots.`);
-  $("recs").innerHTML=R.map(r=>`<div class="rec">${r}</div>`).join("");
-}
+// ---- write actions ----
+async function guardChain(outEl){if(!ST.canSign){outEl.innerHTML='<div class="status s-err">Connect a wallet first.</div>';return false;}
+  outEl.innerHTML='<div class="status s-wait">Ensuring Robinhood Chain…</div>';if(!await ensureRobinhood(PROV)){outEl.innerHTML='<div class="status s-err">Wallet not on Robinhood Chain (4663). Approve the switch.</div>';return false;}return true;}
+async function simSend(to,data,outEl,okmsg){
+  try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+(e.message||e)+'</div>';return;}
+  try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
+  catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}}
 
-// ---- place free ----
 function planFree(){const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
   const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id);
   const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)],parcels=[],tiers=[];let pi=0;
   for(const t of order)while(avail[t-1]>0&&pi<empty.length&&parcels.length<cap){parcels.push(empty[pi].id);tiers.push(t);avail[t-1]--;pi++;}
-  if(!parcels.length){$("freeOut").innerHTML=`<div class="status s-err">Nothing to place: ${empty.length} empty, credits [${ST.free.join(",")}].</div>`;return null;}
-  const bt={};tiers.forEach(t=>bt[t]=(bt[t]||0)+1);
-  $("freeOut").innerHTML=`<div class="status s-ok">Plan: <b>${parcels.length}</b> free rigs (${Object.entries(bt).map(([t,n])=>n+"× "+TIERS[t-1].n).join(", ")}) on ${parcels.slice(0,14).map(x=>"#"+x).join(", ")}${parcels.length>14?"…":""}. Cost 0 DRILL.</div>`;
-  return{parcels,tiers};}
-async function sendFree(){
-  if(!ST.canSign){$("freeOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first: tap <b>Injected</b> (in Rabby/MetaMask\'s in-app browser) or <b>WalletConnect</b> above, then place.</div>';return;}
-  $("freeOut").innerHTML='<div class="status s-wait">Making sure your wallet is on Robinhood Chain (4663)…</div>';
-  if(!await ensureRobinhood(PROV)){$("freeOut").innerHTML='<div class="status s-err">Your wallet is NOT on Robinhood Chain (4663). Approve the network switch in your wallet, or switch it manually, then place again. (A tx on any other chain does nothing.)</div>';return;}
-  const p=planFree();if(!p)return;const data=encCredits(p.parcels,p.tiers,0n);
-  try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
-  catch(e){setS("Simulation reverted — not sending. "+e.message,"s-err");log("SIM REVERT "+e.message);return;}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});
-    setS("Sent ✓ "+h,"s-ok");log("TX "+h);setTimeout(loadAll,4000);}catch(e){setS("Wallet rejected: "+e.message,"s-err");}}
-
-// ---- paid ----
-async function approveDrill(){if(!ST.canSign){setS("Connect wallet first.","s-err");return;}
-  const n=Math.max(1,parseInt($("paidN").value)||1),t=parseInt($("paidTier").value);const need=BigInt(TIERS[t-1].c*n)*10n**18n;
-  try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(need),value:"0x0"});
-    log("APPROVE "+h);setS("Approval sent — wait to confirm, then preview + place.","s-ok");}catch(e){setS("Approve failed: "+e.message,"s-err");}}
-function planPaid(){const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(200,parseInt($("paidN").value)||1));
-  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id);const take=Math.min(n,empty.length);
-  if(!take){$("paidOut").innerHTML=`<div class="status s-err">No empty plots.</div>`;return null;}
-  const parcels=empty.slice(0,take).map(p=>p.id),tiers=parcels.map(()=>t),cost=TIERS[t-1].c*take;
-  $("paidOut").innerHTML=`<div class="status s-ok">${take}× ${TIERS[t-1].n} on ${parcels.slice(0,12).map(x=>"#"+x).join(", ")}${take>12?"…":""} · ~${cost} DRILL. Set Max spend ≥ ${cost} + approve.</div>`;
-  return{parcels,tiers,cost};}
-async function sendPaid(){
-  if(!ST.canSign){$("paidOut").innerHTML='<div class="status s-err">Read-only — connect a wallet first.</div>';return;}
-  if(!await ensureRobinhood(PROV)){$("paidOut").innerHTML='<div class="status s-err">Your wallet is NOT on Robinhood Chain (4663). Approve the switch in your wallet, then place again.</div>';return;}
-  const p=planPaid();if(!p)return;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,p.cost))*10n**18n;
-  const data=encCredits(p.parcels,p.tiers,maxWei);
-  try{setS("Simulating…","s-wait");await ethCall(A.site,data,ST.addr);log("sim OK ✓");}
-  catch(e){setS("Reverted — need approval or DRILL? Not sending. "+e.message,"s-err");return;}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});
-    setS("Sent ✓ "+h,"s-ok");log("TX "+h);setTimeout(loadAll,4000);}catch(e){setS("Wallet rejected: "+e.message,"s-err");}}
+  return{parcels,tiers,empty:empty.length};}
+async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;const p=planFree();
+  if(!p.parcels.length){o.innerHTML='<div class="status s-err">Nothing to place: '+p.empty+' empty own plots, credits ['+ST.free.join(",")+'].</div>';return;}
+  o.innerHTML='<div class="status s-wait">Placing '+p.parcels.length+' free rigs…</div>';
+  await simSend(A.site,encCredits(p.parcels,p.tiers,0n),o,"Placed "+p.parcels.length+" rigs");}
+async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
+  if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
+  if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
+  if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+(p.level+1)+'…</div>';
+  await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+(p.level+1));}
+window.upgradePlot=upgradePlot;
+async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
+window.toggleGate=toggleGate;
+async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
+async function approveDrill(){const o=$("paidOut");if(!await guardChain(o))return;const n=Math.max(1,parseInt($("paidN").value)||1),t=parseInt($("paidTier").value);const need=BigInt(TIERS[t-1].c*n)*10n**18n;try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(need),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+(TIERS[t-1].c*n)+' DRILL.</div>';}catch(e){o.innerHTML='<div class="status s-err">'+(e.message||e)+'</div>';}}
+async function sendPaid(){const o=$("paidOut");if(!await guardChain(o))return;const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(200,parseInt($("paidN").value)||1));
+  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id).slice(0,n);if(!empty.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
+  const parcels=empty.map(p=>p.id),tiers=parcels.map(()=>t),cost=TIERS[t-1].c*parcels.length;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,cost))*10n**18n;
+  o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+TIERS[t-1].n+'…</div>';await simSend(A.site,encCredits(parcels,tiers,maxWei),o,"Placed "+parcels.length+"× "+TIERS[t-1].n);}
 
 // ---- wire ----
 try{const s=localStorage.getItem("mars_rpc");if(s)$("rpc").value=s;const p=localStorage.getItem("mars_wcpid");if(p)$("wcpid").value=p;}catch(e){}
 $("rpc").addEventListener("change",e=>{try{localStorage.setItem("mars_rpc",e.target.value.trim());}catch(_){}});
-$("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo").onclick=loadRo;
-$("planFree").onclick=planFree;$("sendFree").onclick=sendFree;
-$("approveBtn").onclick=approveDrill;$("planPaid").onclick=planPaid;$("sendPaid").onclick=sendPaid;
-ST.stones=Array(12).fill(0);renderRig();renderStones();
-// keep the wallet connection alive across refreshes
-async function autoReconnect(){
-  let mode;try{mode=localStorage.getItem("mars_conn");}catch(e){}
-  if(mode==="injected"&&window.ethereum){
-    try{const acc=await window.ethereum.request({method:"eth_accounts"});
-      if(acc&&acc.length){PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;await ensureRobinhood(window.ethereum).catch(()=>{});await loadAll();}}catch(e){}
-  }else if(mode==="wc"){
-    try{const pid=$("wcpid").value.trim();if(!pid)return;
-      if(!(window["@walletconnect/ethereum-provider"]||{}).EthereumProvider)await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.13.0/dist/index.umd.js");
-      const g=window["@walletconnect/ethereum-provider"]||{};const EP=g.EthereumProvider||g.default;if(!EP||typeof EP.init!=="function")return;
-      const wc=await EP.init({projectId:pid,chains:[CH_ID],optionalChains:[CH_ID],showQrModal:true,rpcMap:{[CH_ID]:$("rpc").value.trim()},metadata:{name:"Mars Strategy Console",description:"Project Mars optimizer",url:location.href,icons:[]}});
-      wc.on("disconnect",()=>{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}});
-      if(wc.accounts&&wc.accounts.length){PROV=wc;ST.addr=wc.accounts[0];ST.canSign=true;await loadAll();}}catch(e){}
-  }
-}
-if(window.ethereum&&window.ethereum.on){
-  window.ethereum.on("chainChanged",()=>{if(PROV===window.ethereum&&ST.addr)loadAll();});
-  window.ethereum.on("accountsChanged",a=>{if(PROV===window.ethereum){if(a&&a.length){ST.addr=a[0];loadAll();}else{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}}}});
-}
+$("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo").onclick=loadRo;$("refresh").onclick=loadAll;
+$("sendFree").onclick=sendFree;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
+$("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
+$("collectBtn").onclick=()=>window.open(GAME,"_blank");
+$("approveBtn").onclick=approveDrill;$("sendPaid").onclick=sendPaid;
+renderRig();
+async function autoReconnect(){let mode;try{mode=localStorage.getItem("mars_conn");}catch(e){}
+  if(mode==="injected"&&window.ethereum){try{const acc=await window.ethereum.request({method:"eth_accounts"});if(acc&&acc.length){PROV=window.ethereum;ST.addr=acc[0];ST.canSign=true;await ensureRobinhood(window.ethereum).catch(()=>{});await loadAll();}}catch(e){}}
+  else if(mode==="wc"){try{const wc=await initWC();if(wc&&wc.accounts&&wc.accounts.length){PROV=wc;ST.addr=wc.accounts[0];ST.canSign=true;await loadAll();}}catch(e){}}}
+if(window.ethereum&&window.ethereum.on){window.ethereum.on("chainChanged",()=>{if(PROV===window.ethereum&&ST.addr)loadAll();});window.ethereum.on("accountsChanged",a=>{if(PROV===window.ethereum){if(a&&a.length){ST.addr=a[0];loadAll();}else{PROV=null;ST.canSign=false;try{localStorage.removeItem("mars_conn");}catch(e){}}}});}
 autoReconnect();
 </script>
 </body>
