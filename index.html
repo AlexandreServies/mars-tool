@@ -251,33 +251,33 @@ async function simSend(to,data,outEl,okmsg){
   catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}}
 
 async function multicallEmpty(ids){const empty=new Set(),B=250;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.map(id=>({to:A.site,data:S.occupantOf+w(id)}));let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const r=dec[k]||{};if(r.success&&BigInt(r.data||"0x0")===0n)empty.add(id);});}return empty;}
+// higher-level plots pay a bigger planter bonus, so sort candidates by level descending
+async function sortByLevel(ids){if(ids.length<2)return ids;const lv={};const B=400;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);try{const enc=S.levelsBatch+w(32)+w(chunk.length)+chunk.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=j=>h.slice(j*64,j*64+64);const len=parseInt(W(1),16);for(let j=0;j<len;j++)lv[chunk[j]]=parseInt(W(2+j),16)||1;}catch(e){}}return ids.slice().sort((a,b)=>(lv[b]||1)-(lv[a]||1)||a-b);}
 async function sendFree(){const o=$("freeOut");if(!await guardChain(o))return;
-  const sel=$("freeTierSel").value,cap=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
+  const sel=$("freeTierSel").value,capIn=Math.max(1,Math.min(200,parseInt($("freeMax").value)||200));
   const ext=$("extChk")&&$("extChk").checked;
   const avail=ST.free.slice(),order=sel==="all"?[5,4,3,2,1]:[parseInt(sel)];
-  const credits=order.reduce((s,t)=>s+avail[t-1],0),nWant=Math.min(cap,credits);
-  if(!nWant){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
+  const credits=order.reduce((s,t)=>s+avail[t-1],0),want=Math.min(capIn,credits);
+  if(!want){o.innerHTML='<div class="status s-err">No free credits for that tier ['+ST.free.join(",")+'].</div>';return;}
   const own=new Set(ST.plots.map(p=>p.id));
-  let ownEmpty=ST.plots.filter(p=>p.empty).map(p=>p.id);
-  for(let attempt=1;attempt<=4;attempt++){
-    o.innerHTML='<div class="status s-wait">Finding open plots (try '+attempt+')…</div>';
-    let pool=ownEmpty.slice();
-    if(pool.length<nWant&&ext){const found=await scanExternal(nWant-pool.length+40,own);pool=pool.concat(found);}
-    o.innerHTML='<div class="status s-wait">Validating '+pool.length+' plots…</div>';
-    const okSet=await multicallEmpty(pool);const cand=pool.filter(id=>okSet.has(id));
-    if(!cand.length){o.innerHTML='<div class="status s-err">No open/empty plots free right now'+(ext?'':' — enable “others’”')+'. Tap Place again.</div>';return;}
-    const targets=cand.slice(0,nWant);
+  let size=want;
+  for(let round=0;round<10&&size>=1;round++){
+    o.innerHTML='<div class="status s-wait">Finding '+size+' open plot'+(size>1?'s':'')+'…</div>';
+    let pool=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id).map(p=>p.id).slice(0,size);
+    if(pool.length<size&&ext){let found=await scanExternal(size-pool.length+30,own);found=await sortByLevel(found);pool=pool.concat(found);}
+    const okSet=await multicallEmpty(pool);const cand=pool.filter(id=>okSet.has(id)).slice(0,size);
+    if(!cand.length){o.innerHTML='<div class="status s-err">No open+empty plots free right now'+(ext?'':' — tick “others’”')+'. Tip: <b>Close all</b> then place on your own plots (uncontested).</div>';return;}
     const parcels=[],tiers=[];let ti=0;const av=avail.slice();
-    for(const t of order)while(av[t-1]>0&&ti<targets.length&&parcels.length<cap){parcels.push(targets[ti]);tiers.push(t);av[t-1]--;ti++;}
+    for(const t of order)while(av[t-1]>0&&ti<cand.length&&parcels.length<size){parcels.push(cand[ti]);tiers.push(t);av[t-1]--;ti++;}
     const extN=parcels.filter(id=>!own.has(id)).length;
     const data=encCredits(parcels,tiers,0n);
+    o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' ('+extN+' external)…</div>';
     try{await ethCall(A.site,data,ST.addr);}
-    catch(e){ownEmpty=[];if(attempt<4){o.innerHTML='<div class="status s-wait">Plots taken — rescanning ('+attempt+'/4)…</div>';continue;}o.innerHTML='<div class="status s-err">Plots kept getting grabbed (contested). Lower the count (e.g. 30) and tap Place again.</div>';return;}
-    o.innerHTML='<div class="status s-wait">Placing '+parcels.length+' rigs ('+extN+' external)…</div>';
-    try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
+    catch(e){size=Math.floor(size/2);continue;}
+    try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+' rigs ('+extN+' external) ✓ '+h.slice(0,12)+'… — tap Place again for more.</div>';log("TX "+h);setTimeout(loadAll,4500);}
     catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+(e.message||e)+'</div>';}
-    return;
-  }}
+    return;}
+  o.innerHTML='<div class="status s-err">Map is heavily contested — couldn\'t hold a plot. <b>Close all</b> and place on your own plots (they can\'t be snatched when closed), or try again shortly.</div>';}
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
   if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
   if(stonesEnough(p.level+1)===false){o.innerHTML='<div class="status s-err">Not enough stones for #'+id+' L'+(p.level+1)+': need '+costStr(p.level+1)+'.</div>';return;}
@@ -289,7 +289,7 @@ window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
 async function approveDrill(){const o=$("paidOut");if(!await guardChain(o))return;const n=Math.max(1,parseInt($("paidN").value)||1),t=parseInt($("paidTier").value);const need=BigInt(TIERS[t-1].c*n)*10n**18n;try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(need),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+(TIERS[t-1].c*n)+' DRILL.</div>';}catch(e){o.innerHTML='<div class="status s-err">'+(e.message||e)+'</div>';}}
 async function sendPaid(){const o=$("paidOut");if(!await guardChain(o))return;const t=parseInt($("paidTier").value),n=Math.max(1,Math.min(200,parseInt($("paidN").value)||1));
-  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.open-a.open)||(b.level-a.level)||a.id-b.id).slice(0,n);if(!empty.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
+  const empty=ST.plots.filter(p=>p.empty).sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id).slice(0,n);if(!empty.length){o.innerHTML='<div class="status s-err">No empty plots.</div>';return;}
   const parcels=empty.map(p=>p.id),tiers=parcels.map(()=>t),cost=TIERS[t-1].c*parcels.length;const maxWei=BigInt(Math.max(parseInt($("paidMax").value)||0,cost))*10n**18n;
   o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+TIERS[t-1].n+'…</div>';await simSend(A.site,encCredits(parcels,tiers,maxWei),o,"Placed "+parcels.length+"× "+TIERS[t-1].n);}
 
