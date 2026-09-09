@@ -71,7 +71,7 @@
   </div>
 
   <div class="card" id="standCard" hidden>
-    <h2>Standing <span class="r"><button class="mini sec" id="refresh">↻ refresh</button></span></h2>
+    <h2>Standing <span class="r"><span id="upd" class="sub" style="margin-right:7px"></span><button class="mini sec" id="refresh">↻ now</button></span></h2>
     <div class="grid">
       <div class="stat"><div class="l">Plots</div><div class="v" id="mPlots">—</div><div class="x" id="mPlotsX"></div></div>
       <div class="stat"><div class="l">Weight</div><div class="v gold" id="mShare">—</div><div class="x" id="mWeight"></div></div>
@@ -173,7 +173,7 @@ const send=tx=>PROV.request({method:"eth_sendTransaction",params:[tx]});
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
 async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error){const er=new Error(j.error.message||JSON.stringify(j.error));er.data=(j.error.data&&j.error.data.data)||j.error.data;throw er;}return j.result;}
 // contract error selectors -> readable reason (from the game's own decoder)
-const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x1e076c1d":()=>"listing changed — refresh"};
+const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x711b0aa3":()=>"listing filled — re-planning","0x322e5520":()=>"listing partially filled — re-planning","0xe76fd45a":()=>"bid gone","0x863b7b1f":()=>"buyer lacks DRILL/approval"};
 function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;else if(d&&typeof d.data==="string")hex=d.data;if(!hex){const mm=((e&&e.message)||"").match(/0x[0-9a-fA-F]{8,}/);if(mm)hex=mm[0];}hex=(hex||"").toLowerCase();
   if(hex.indexOf("0x")===0&&hex.length>=10){const sel=hex.slice(0,10);
     if(sel==="0x08c379a0"){try{const len=parseInt(hex.slice(74,138),16);const bytes=hex.slice(138,138+len*2);return decodeURIComponent(bytes.replace(/(..)/g,"%$1"));}catch(_){}}
@@ -250,8 +250,9 @@ function planBuy(need){const byList={},short={};let costWei=0n;
   return{calls,costWei,short};}
 function encBuy(listingId,ids,amounts){const a=w(ids.length)+ids.map(w).join(""),b=w(amounts.length)+amounts.map(w).join("");return S.buy+w(listingId)+w(96)+w(96+a.length/2)+a+b;}
 
-async function loadAll(){try{
-  setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
+let REFRESHING=false;
+async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
   const [drillRaw,freeRaw,twRaw,stoneRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.stones=stoneRaw;
@@ -260,12 +261,14 @@ async function loadAll(){try{
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
   $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);$("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n[0]:"").filter(Boolean).join(" ");
   const sv=ST.stones.reduce((a,n,i)=>a+n*STONE[i][1],0);$("mStoneVal").textContent=fmt(sv);renderStones();
-  setS("Loading plots…","s-wait");
-  const ids=await ownedPlots(ST.addr);
+  if(!quiet)setS("Loading plots…","s-wait");
+  const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
   // occupant==0 = truly empty & plantable. A finished rig keeps occupant=driller until collected,
   // so occupant!=0 = has a rig (running OR finished-uncollected). The real deploy blocker is the 100-rig cap.
-  const plots=[];for(let i=0;i<ids.length;i+=25){plots.push(...await Promise.all(ids.slice(i,i+25).map(async id=>{const a=w(id);const[occ,open]=await Promise.all([cu(A.site,S.occupantOf,a).catch(()=>0n),cu(A.plots,S.isOpen,a).catch(()=>0n)]);return{id,level:levels[id]||1,open:open===1n,empty:occ===0n,weight:WEIGHTAT[levels[id]||1]||1};})));}
+  const plots=[];for(let s=0;s<ids.length;s+=120){const chunk=ids.slice(s,s+120),calls=[];chunk.forEach(id=>{calls.push({to:A.site,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});});
+    let dec=[];try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){}
+    chunk.forEach((id,k)=>{const oc=dec[2*k],op=dec[2*k+1];plots.push({id,level:levels[id]||1,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!oc||!oc.success||BigInt(oc.data||"0x0")===0n,weight:WEIGHTAT[levels[id]||1]||1});});}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
   // active rigs (own + others' plots): siteOf(addr)=rig rows[tier,parcel,since,revealBlk,nonce], siteTiming(addr)=readyAt[]
   try{const[soRaw,stRaw]=await Promise.all([ethCall(A.site,S.siteOf+arg),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x")]);
@@ -281,9 +284,13 @@ async function loadAll(){try{
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   renderPort();renderDeploy();renderRig();renderStones();fillUpSel();loadCosts().then(fillUpSel);
-  loadMarket().then(()=>{renderRig();renderStones();renderDeploy();updDrillEth();});
-  setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
-}catch(e){setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}}
+  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();
+  if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
+  if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
+  startAuto();
+}catch(e){if(!quiet)setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}finally{REFRESHING=false;}}
+let AUTO=null;
+function startAuto(){if(AUTO)return;AUTO=setInterval(()=>{if(ST.addr&&!ST.busy&&document.visibilityState!=="hidden")loadAll(true,true);},20000);}
 function fmtMin(sec){if(sec<=0)return "now";const m=Math.round(sec/60);return m<60?m+"m":Math.floor(m/60)+"h"+(m%60?(m%60)+"m":"");}
 function rigLine(){const now=Math.floor(Date.now()/1000),s=[];if(ST.active>=RIGCAP)s.push('<span class="gold">FULL</span>');if(ST.ready)s.push('<span class="grn">'+ST.ready+' ready</span>');if(ST.nextAt)s.push("next "+fmtMin(ST.nextAt-now));return s.join(" · ");}
 function decRows(hex,n){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const off=parseInt(W(0),16)/32,len=parseInt(W(off),16),rows=[];for(let i=0;i<len;i++){const r=[];for(let k=0;k<n;k++)r.push(BigInt("0x"+W(off+1+i*n+k)));rows.push(r);}return rows;}
@@ -328,7 +335,7 @@ async function guardChain(outEl){if(!ST.canSign){outEl.innerHTML='<div class="st
   outEl.innerHTML='<div class="status s-wait">Ensuring Robinhood Chain…</div>';if(!await ensureRobinhood(PROV)){outEl.innerHTML='<div class="status s-err">Wallet not on Robinhood Chain (4663). Approve the switch.</div>';return false;}return true;}
 async function simSend(to,data,outEl,okmsg){
   try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+decodeErr(e)+'</div>';return;}
-  try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
+  try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
   catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
 
 async function multicallEmpty(ids){const empty=new Set(),B=250;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.map(id=>({to:A.site,data:S.occupantOf+w(id)}));let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const r=dec[k]||{};if(r.success&&BigInt(r.data||"0x0")===0n)empty.add(id);});}return empty;}
@@ -367,7 +374,7 @@ async function approveDrill(){const o=$("depOut");if(!await guardChain(o))return
   const amt=BigInt(t.c*n)*10n**18n;o.innerHTML='<div class="status s-wait">Approving '+fmt(t.c*n)+' DRILL…</div>';
   try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(amt),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+fmt(t.c*n)+' DRILL ✓ — now tap Place.</div>';ST.allow=amt;setTimeout(loadAll,4000);}
   catch(e){o.innerHTML='<div class="status s-err">'+decodeErr(e)+'</div>';}}
-async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;
+async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;ST.busy=true;try{
   const t=parseInt($("depTier").value)||3,tier=TIERS[t-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1)),ext=$("depExt").checked;
   const capLeft=Math.max(0,RIGCAP-ST.active);
   if(capLeft<=0){o.innerHTML='<div class="status s-err">At '+RIGCAP+'/'+RIGCAP+' rig cap — every plot reverts until slots free up. '+(ST.nextAt?'Next rig finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+(ST.ready?'<b>'+ST.ready+' ready now</b> — ':'')+'Collect in-game, then Place.</div>';return;}
@@ -396,32 +403,45 @@ async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;
     ({parcels,tiers}=packAscending(re.good,mkAvail(re.good.length),[t]));extN=parcels.filter(id=>!own.has(id)).length;
     const pn=Math.max(0,parcels.length-fr);data=encCredits(parcels,tiers,BigInt(pn*tier.c)*10n**18n);
     try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' ('+extN+' external'+(paidNow?', '+paidNow+' paid':'')+') ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(loadAll,4500);}
-  catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
+  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' ('+extN+' external'+(paidNow?', '+paidNow+' paid':'')+') ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
+  catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}
+  }finally{ST.busy=false;}}
 async function waitTx(h){for(let i=0;i<50;i++){try{const r=await rpc("eth_getTransactionReceipt",[h]);if(r&&r.blockNumber)return r;}catch(e){}await new Promise(res=>setTimeout(res,400));}return null;}
+const err=(o,m)=>{o.innerHTML='<div class="status s-err">'+m+'</div>';};
 async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id===id);if(!p)return;
-  if(p.level>=MAXLVL){o.innerHTML='<div class="status s-err">#'+id+' is max level.</div>';return;}
-  const tgt=p.level+1,c=COST[tgt];if(!c){o.innerHTML='<div class="status s-err">Upgrade cost still loading — refresh.</div>';return;}
+  if(p.level>=MAXLVL){err(o,'#'+id+' is max level.');return;}
+  const tgt=p.level+1,c=COST[tgt];if(!c){err(o,'Upgrade cost still loading — one moment.');return;}
   if(!await guardChain(o))return;
-  const missing={};c.ids.forEach((sid,k)=>{const m=Math.max(0,c.amts[k]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;});
-  if(Object.keys(missing).length){ // buy the shortfall from the market, cheapest first
-    const plan=planBuy(missing),shortKeys=Object.keys(plan.short);
-    if(shortKeys.length){o.innerHTML='<div class="status s-err">Can\'t buy '+shortKeys.map(s=>STONE[s][0]).join("/")+' — none listed. Mine via Motherlode.</div>';return;}
-    if(!plan.calls.length){o.innerHTML='<div class="status s-err">No listings to buy from — refresh.</div>';return;}
-    const costWei=plan.costWei,costD=Number(costWei)/1e18;
-    if(ST.drill<costD){o.innerHTML='<div class="status s-err">Need '+fmt(costD)+' DRILL to buy materials, have '+fmt(ST.drill)+'.</div>';return;}
-    if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
-      try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
-      catch(e){o.innerHTML='<div class="status s-err">Approve rejected: '+decodeErr(e)+'</div>';return;}}
-    let lastH;
-    for(let i=0;i<plan.calls.length;i++){const cc=plan.calls[i],data=encBuy(cc.listingId,cc.ids,cc.amounts);
-      o.innerHTML='<div class="status s-wait">Buying materials '+(i+1)+'/'+plan.calls.length+' ('+fmt(costD)+' DRILL total)…</div>';
-      try{await ethCall(A.market,data,ST.addr);}catch(e){o.innerHTML='<div class="status s-err">Buy '+(i+1)+'/'+plan.calls.length+' sim reverted: '+decodeErr(e)+' — refresh & retry.</div>';return;}
-      try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUY "+lastH);}catch(e){o.innerHTML='<div class="status s-err">Buy rejected: '+decodeErr(e)+'</div>';return;}}
-    o.innerHTML='<div class="status s-wait">Materials bought — waiting for confirmation…</div>';await waitTx(lastH);
-  }
-  o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+tgt+'…</div>';
-  await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);}
+  ST.busy=true;
+  try{
+    // buy any shortfall — re-reading balances + the live book each round so filled listings self-heal
+    for(let round=0;round<6;round++){
+      ST.stones=await stoneBatch(ST.addr);
+      const missing={};c.ids.forEach((sid,k)=>{const m=Math.max(0,c.amts[k]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;});
+      if(!Object.keys(missing).length)break;
+      o.innerHTML='<div class="status s-wait">Reading the market…</div>';await loadMarket();
+      const plan=planBuy(missing),shortKeys=Object.keys(plan.short);
+      if(shortKeys.length){err(o,'Can\'t buy '+shortKeys.map(s=>STONE[s][0]).join("/")+' — none listed. Mine via Motherlode.');return;}
+      if(!plan.calls.length){err(o,'No sellers for the missing ore right now — try again shortly.');return;}
+      const costWei=plan.costWei,costD=Number(costWei)/1e18;
+      if(ST.drill<costD){err(o,'Need '+fmt(costD)+' DRILL to buy materials, have '+fmt(ST.drill)+'.');return;}
+      if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
+        try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
+        catch(e){err(o,'Approve rejected: '+decodeErr(e));return;}}
+      let lastH,stale=false;
+      for(let i=0;i<plan.calls.length;i++){const cc=plan.calls[i],data=encBuy(cc.listingId,cc.ids,cc.amounts);
+        o.innerHTML='<div class="status s-wait">Buying materials ('+fmt(costD)+' DRILL)… '+(i+1)+'/'+plan.calls.length+'</div>';
+        try{await ethCall(A.market,data,ST.addr);}
+        catch(e){const reason=decodeErr(e);if(/re-planning/.test(reason)){stale=true;break;}err(o,'Buy reverted: '+reason);return;}
+        try{lastH=await send({from:ST.addr,to:A.market,data,value:"0x0"});log("BUY "+lastH);}catch(e){err(o,'Buy rejected: '+decodeErr(e));return;}}
+      if(lastH){o.innerHTML='<div class="status s-wait">Confirming purchase…</div>';await waitTx(lastH);}
+      if(!stale&&!lastH)break; // nothing bought and not stale → give up next check
+    }
+    ST.stones=await stoneBatch(ST.addr);
+    if(c.ids.some((sid,k)=>ST.stones[sid]<c.amts[k])){err(o,'Market too thin to fill the order right now — try again shortly.');return;}
+    o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+tgt+'…</div>';
+    await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);
+  }finally{ST.busy=false;}}
 window.upgradePlot=upgradePlot;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
@@ -429,7 +449,8 @@ async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))ret
 // ---- wire ----
 try{const s=localStorage.getItem("mars_rpc");if(s)$("rpc").value=s;const p=localStorage.getItem("mars_wcpid");if(p)$("wcpid").value=p;}catch(e){}
 $("rpc").addEventListener("change",e=>{try{localStorage.setItem("mars_rpc",e.target.value.trim());}catch(_){}});
-$("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo").onclick=loadRo;$("refresh").onclick=loadAll;
+$("connect").onclick=connectInjected;$("connectWC").onclick=connectWC;$("loadRo").onclick=loadRo;$("refresh").onclick=()=>loadAll(false,false);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);});
 $("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;
 $("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
