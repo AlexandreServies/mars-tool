@@ -61,6 +61,12 @@
   .prow .pbar{flex:1;min-width:0}.prow .pbar svg{width:100%;height:20px;display:block}
   .prow .ptot{flex:0 0 38px;text-align:right;font-size:11px;font-weight:600}
   .pempty{opacity:.42}
+  #waveTbl{font-size:11px;table-layout:fixed}#waveTbl th,#waveTbl td{padding:3px 4px;overflow:hidden}#waveTbl th{font-size:8.5px;line-height:1.1}#waveTbl .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#waveTbl .swatch{width:7px;height:7px;margin-right:3px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.seg button{background:var(--panel2);color:var(--mut);border:0;border-radius:0;padding:3px 9px;font-size:11px}.seg button.on{background:var(--drill);color:#1a0f08}
+  #optTbl{font-size:11.5px}#optTbl th,#optTbl td{padding:3px 5px}
+  .chip{font-size:8.5px;font-weight:600;letter-spacing:-.01em}
+  tr.det td{font-size:9.5px;color:var(--mut);white-space:normal;line-height:1.35;padding:3px 6px 5px;background:#120f0e}
+  #stoneTbl td.nm,#waveTbl tr{cursor:pointer}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
   .t-open{background:#12341f;color:var(--green)}.t-closed{background:#25211d;color:var(--mut)}
   .t-busy{background:#3a1c16;color:var(--drill)}.t-idle{background:#1a2733;color:var(--blue)}
@@ -107,7 +113,6 @@
       <div class="stat"><div class="l">$DRILL</div><div class="v" id="mDrill">—</div><div class="x" id="mDrillX"></div></div>
       <div class="stat"><div class="l">Stones val</div><div class="v" id="mStoneVal">—</div><div class="x" id="mStoneValX"></div></div>
       <div class="stat"><div class="l">Rigs out</div><div class="v" id="mRigs">—</div><div class="x" id="mRigsX"></div></div>
-      <div class="stat"><div class="l">Free rigs</div><div class="v drill" id="mFree">—</div><div class="x" id="mFreeX"></div></div>
       <div class="stat"><div class="l">Empty plots</div><div class="v" id="mEmpty">—</div><div class="x" id="mEmptyX"></div></div>
     </div>
   </div>
@@ -120,7 +125,7 @@
       <input id="depN" class="mono" style="width:56px" value="10" inputmode="numeric">
       <label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0"><input type="checkbox" id="depExt" checked style="width:auto">others'</label>
       <button id="depBtn">Place</button>
-      <button class="sec" id="depApprove" title="Approve DRILL for paid rigs">Approve</button>
+      <button class="sec" id="depApprove" title="Approve DRILL for rigs">Approve</button>
     </div>
     <div class="sub" id="depEcon" style="margin-top:6px"></div>
     <div id="depOut"></div>
@@ -156,10 +161,26 @@
     </div>
   </div>
 
+  <div class="card" id="optCard" hidden>
+    <h2>DRILL/h optimizer <span class="r">◄ per slot · $ per DRILL</span></h2>
+    <div class="btnrow" style="margin-bottom:7px;font-size:11px">
+      <span class="sub">ore at</span><span class="seg"><button id="optAsk" class="on" title="ore sold at the lowest ask (what buyers pay now) −5% fee">ask</button><button id="optBid" title="ore dumped into the best bid −5% fee (floor)">bid</button></span>
+      <span class="sub" style="margin-left:2px">re-plant</span><select id="optH" style="width:auto;padding:3px 6px;font-size:11px" title="how often you can come back to collect and re-plant — a finished rig blocks its slot until then"><option value="0.5">30m</option><option value="1">1h</option><option value="2">2h</option><option value="4">4h</option><option value="8">8h</option></select>
+      <label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0" title="also plant on other players' open plots (planter share of the bonus only)"><input type="checkbox" id="optExt" checked style="width:auto">others’</label>
+    </div>
+    <div id="optVerdict" class="stat" style="margin-bottom:6px"></div>
+    <table id="optTbl"></table>
+  </div>
+
   <div class="card" id="prodCard" hidden>
-    <h2>Production timeline <span class="r">planet · 5m · 8h</span></h2>
+    <h2>Production timeline <span class="r" id="prodR">planet · 5m · 8h</span></h2>
     <div class="paxis"><span class="pnm"></span><span class="pbar"><span>now</span><span>+2h</span><span>+4h</span><span>+6h</span><span>8h</span></span><span class="ptot">Σ8h</span></div>
     <div id="prodBody"></div>
+  </div>
+
+  <div class="card" id="waveCard" hidden>
+    <h2>Wave pressure <span class="r">next 8h · tap a row</span></h2>
+    <div class="tscroll" id="waveBody"></div>
   </div>
 
   <div class="card" id="xferCard" hidden>
@@ -197,8 +218,8 @@ const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",plots:"0x1AcD1E34526b
 // $DRILL/WETH Uniswap-V4 pool state slot (poolId is fixed, so this storage slot is constant). currency0=WETH, currency1=DRILL.
 const POOL_SLOT0="0xb31eee6f69dbbb3d2196fc24f67df6f69a2650ec155ef676a95fda9a6b24299b";
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
-const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
-  levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployManyCredits:"0x6dcb2774",approve:"0x095ea7b3",
+const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
+  levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22",buyBatch:"0x9fd46449",
@@ -215,14 +236,20 @@ const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a
 // emitted as Slush(address indexed owner, uint256 indexed id, uint256 amount) on the site contract, so the
 // balance is the sum of your Slush events' amounts (scanned like land ownership, filtered by your address).
 const SLUSH={name:"Slush",color:"#bcdff0"},SLUSH_TOPIC="0xb84b22c2894f3711d7a02a464b95da967b495da4111bfe050ebee51f52f163e1";
-// market Sale(listingId, buyer, seller, uint256[] ids, uint256[] amounts, uint256 price, uint256 fee) — sum amounts by
-// stone id over the last ~hour of blocks (~0.1s/block => ~36k blocks) for a per-ore "bought last hour" activity readout.
-const MARKET_SALE_TOPIC="0x17e423416cad1211973fa428a9df1394109e696b7ba70357a88a7ef1e181d64d",BLOCKS_1H=36000;
+// market events (all verified on-chain): Sale(listingId, buyer, seller | ids[], amounts[], price, fee) = an ask bought;
+// OfferFilled(offerId, seller, maker | ore, amount, total, fee) = stones sold into a bid; Listed(listingId, seller |
+// ids[], amounts[], prices[]); Cancelled(listingId, seller | ids[], amounts[]). Together they are the complete record of
+// units bought, and of units entering/leaving the ask side.
+const MARKET_SALE_TOPIC="0x17e423416cad1211973fa428a9df1394109e696b7ba70357a88a7ef1e181d64d",OFFER_FILL_TOPIC="0xe7ca543e9a56d11e7325cb76a7e7b69f9c84336eb1d25bf3a95b07b31cc77ff1",
+  LISTED_TOPIC="0xdb5b1a3ca322622559e9cb084c2f5bf51ac843b5c4861fa013f5475ac1d101ba",CANCEL_TOPIC="0x2e6718915724f69d2651be6ea434632d579d7318b79850a4cefe16819c62410a";
+const FEE=0.05;   // market fee: the seller receives 95% of the price (verified in the game client: proceeds = price − price×500/10000)
 // planet-wide rig deploy event: topics [sig, player, parcel, nonce], data [readyAt(s), durationSeconds].
 // durationSeconds is unique per tier, so it maps straight to the TIERS index; readyAt says when the rig ripens.
 const DEPLOY_TOPIC="0x321431a3f8c3ed9d49a8ea13b0fe9e35db349ce681d40e3dbd9770ba74a4e214";
 const DUR2TIER={1800:0,3600:1,7200:2,14400:3,28800:4};
-const PROD_H=8,PROD_NB=96,BLOCKS_8H=Math.round(8.5*3600/0.101); // 8h horizon, 5-min buckets, ~8.5h block window (0.101s/block)
+const PROD_H=8,PROD_NB=96; // production timeline: 8h horizon, 5-min buckets
+// history cache (fills + rig ripenings) kept 30h, persisted in localStorage; wave stats on 30-min buckets, 24h back / 8h ahead
+const HIST_KEEP_H=26,HIST_LS="mars_hist_v2",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
 const DUST=i=>i<2;
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
@@ -239,7 +266,7 @@ const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0))
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,act:null,deploys:[],depHead:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
+let ST={addr:"",canSign:false,plots:[],drill:0,stones:Array(12).fill(0),slush:null,act:null,deploys:[],depHead:null,hist:null,stats:null,histProg:"",askUnits:null,askNear:null,bids:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
 let WALLET=null,PROVIDER=null,NONCE=null,COST={}; // WALLET=ethers signer, NONCE tracked locally for fast sequential txs
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -270,7 +297,7 @@ function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;
 const ethCall=(to,data,from)=>rpc("eth_call",[from?{to,data,from}:{to,data},"latest"]);
 async function cu(to,sel,arg=""){const r=await ethCall(to,sel+arg);return BigInt(r&&r!=="0x"?r:"0x0");}
 function decArrs(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const o0=parseInt(W(0),16)/32,o1=parseInt(W(1),16)/32;const rd=o=>{const n=parseInt(W(o),16),a=[];for(let k=0;k<n;k++)a.push(parseInt(W(o+1+k),16));return a;};return[rd(o0),rd(o1)];}
-function encCredits(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployManyCredits+w(96)+w(96+pB.length/2)+w(mx)+pB+tB;}
+function encDeploy(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployMany+w(96)+w(96+pB.length/2)+w(mx)+pB+tB;}
 function encGates(parcels,open){const pB=w(parcels.length)+parcels.map(w).join(""),oB=w(parcels.length)+parcels.map(()=>w(open?1:0)).join("");return S.setGates+w(64)+w(64+pB.length/2)+pB+oB;}
 const MC3="0xcA11bde05977b3631167028862bE2a173976CA11";
 function encAgg3(calls){const tuples=calls.map(c=>{const cd=c.data.replace(/^0x/,"");const cdlen=cd.length/2;const padded=cd+"0".repeat((64-cd.length%64)%64);return wa(c.to)+w(1)+w(96)+w(cdlen)+padded;});const n=tuples.length;let run=n*32,offs="";for(const t of tuples){offs+=w(run);run+=t.length/2;}return "0x82ad56cb"+w(32)+w(n)+offs+tuples.join("");}
@@ -297,28 +324,45 @@ function connectPK(){connectKey($("pk").value,$("remember").checked);}
 function forgetKey(){WALLET=null;PROVIDER=null;ST.canSign=false;$("pk").value="";try{localStorage.removeItem("mars_pk");}catch(e){}setS("Key forgotten. Paste it again to sign.","s-wait");}
 async function loadRo(){const a=$("addr").value.trim();if(/[0-9a-fA-F]{64}/.test(a)){setS("That looks like a private key — put it in the key field, not view-only.","s-err");return;}if(!isAddr(a)){setS("Invalid address.","s-err");return;}ST.addr=a;ST.canSign=false;await loadAll();}
 
-async function ownedPlots(addr){const head=parseInt(await rpc("eth_blockNumber",[]),16);const CH=9000,own=new Set(),me="0x"+wa(addr);
-  const scan=async(tp,add)=>{for(let b=DEPLOY_BLOCK;b<=head;b+=CH){const to=Math.min(b+CH-1,head);let r;try{r=await rpc("eth_getLogs",[{fromBlock:"0x"+b.toString(16),toBlock:"0x"+to.toString(16),address:A.land,topics:tp}]);}catch(e){continue;}if(Array.isArray(r))for(const lg of r){const id=parseInt(lg.topics[3],16);add?own.add(id):own.delete(id);}}};
-  await scan([TRANSFER,null,me],true);await scan([TRANSFER,me,null],false);return[...own].sort((a,b)=>a-b);}
+// owned plots = land Transfer events to/from you, applied in block order. Cached per address in localStorage and only the
+// new blocks are scanned on later loads (2 calls). A failed chunk stops the scan at the last good block; next load continues.
+async function ownedPlots(addr){const key="mars_land_v1",me="0x"+wa(addr),head=parseInt(await rpc("eth_blockNumber",[]),16);
+  let c=null;try{c=JSON.parse(localStorage.getItem(key)||"null");}catch(e){}
+  if(!c||c.addr!==me||!Array.isArray(c.ids)||typeof c.head!=="number")c={addr:me,head:DEPLOY_BLOCK-1,ids:[]};
+  const own=new Set(c.ids),CH=9000,R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
+  const one=async(tp,f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.land,topics:tp}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300));return one(tp,f,t,tr-1);}return null;}};
+  let last=c.head,stop=false;const PAR=4;
+  for(let i=0;i<R.length&&!stop;i+=PAR){const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>Promise.all([one([TRANSFER,null,me],f,t,3),one([TRANSFER,me,null],f,t,3)])));
+    for(let k=0;k<part.length;k++){const[inn,out]=res[k];if(!Array.isArray(inn)||!Array.isArray(out)){stop=true;break;}
+      const all=inn.map(l=>({l,k:1})).concat(out.filter(l=>(l.topics[2]||"").toLowerCase()!==me).map(l=>({l,k:0}))).sort((x,y)=>(parseInt(x.l.blockNumber,16)-parseInt(y.l.blockNumber,16))||(parseInt(x.l.logIndex,16)-parseInt(y.l.logIndex,16)));
+      for(const{l,k}of all){const id=parseInt(l.topics[3],16);if(k)own.add(id);else own.delete(id);}last=part[k][1];}}
+  c.head=last;c.ids=[...own].sort((a,b)=>a-b);try{localStorage.setItem(key,JSON.stringify(c));}catch(e){}
+  return c.ids;}
 async function stoneBatch(addr){const ids=[...Array(12).keys()];let d=S.balBatch+w(64)+w(64+32*13)+w(12)+ids.map(()=>wa(addr)).join("")+w(12)+ids.map(w).join("");try{const r=await ethCall(A.stones,d);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const out=[];for(let i=0;i<12;i++)out.push(parseInt(W(2+i)||"0",16));return out;}catch(e){return Array(12).fill(0);}}
 async function loadCosts(){for(let l=2;l<=MAXLVL;l++){if(COST[l])continue;try{const r=await ethCall(A.plots,S.costOf+w(l));const[ids,amts]=decArrs(r);COST[l]={ids,amts};}catch(e){}}}
 // read live ore market (on-chain, no CORS) + $DRILL/ETH price from the V4 pool
 async function loadMarket(){
   try{const s0=await ethCall(A.poolMgr,S.extsload+POOL_SLOT0.slice(2));const v=BigInt(s0||"0x0"),sqrt=v&((1n<<160n)-1n);const dpw=Number(sqrt*sqrt*10n**18n/(1n<<192n))/1e18;ST.drillEth=dpw?1/dpw:0;}catch(e){ST.drillEth=0;}
-  const bid=Array(12).fill(0),ask=Array(12).fill(0),askWei=Array(12).fill(0n),myListed=Array(12).fill(0),book=[],ladder=Array.from({length:12},()=>[]);
+  const bid=Array(12).fill(0),ask=Array(12).fill(0),askWei=Array(12).fill(0n),myListed=Array(12).fill(0),book=[],ladder=Array.from({length:12},()=>[]),bids=Array.from({length:12},()=>[]),allLots=Array.from({length:12},()=>[]);
   try{
     const lo=Number(BigInt(await ethCall(A.market,S.lastOffer)||"0x0"));
     if(lo>0){const lc=[],oc=[];for(let i=1;i<=lo;i++){lc.push({to:A.market,data:S.offerLive+w(i)});oc.push({to:A.market,data:S.offerOf+w(i)});}
-      const lv=decAgg3(await ethCall(MC3,encAgg3(lc))),od=decAgg3(await ethCall(MC3,encAgg3(oc)));
-      od.forEach((r,ix)=>{const live=lv[ix]&&BigInt(lv[ix].data||"0x0")===1n;if(!live||!r.success)return;const W=words(r.data);const ore=parseInt(W[1],16),price=Number(BigInt("0x"+(W[4]||"0")))/1e18;if(ore<12&&price>bid[ore])bid[ore]=price;});}
+      const lv=decAgg3(await ethCall(MC3,encAgg3(lc))),od=decAgg3(await ethCall(MC3,encAgg3(oc))),offers=[];
+      od.forEach((r,ix)=>{const live=lv[ix]&&BigInt(lv[ix].data||"0x0")===1n;if(!live||!r.success)return;const W=words(r.data);const maker=("0x"+(W[0]||"").slice(24)).toLowerCase(),ore=parseInt(W[1],16),left=Number(BigInt("0x"+(W[2]||"0"))),exp=parseInt(W[3]||"0",16)*1000,pw=BigInt("0x"+(W[4]||"0"));if(ore>=12||left<=0||pw<=0n||(exp&&exp<=Date.now()))return;offers.push({maker,ore,left,pw,price:Number(pw)/1e18});});
+      // a bid is only real depth if its maker can pay it: cap each maker's bids (best price first) by min(DRILL balance, market allowance)
+      const mk=[...new Set(offers.map(o=>o.maker))],funds={};
+      if(mk.length){try{const dec=decAgg3(await ethCall(MC3,encAgg3(mk.flatMap(m=>[{to:A.ore,data:S.balanceOf+wa(m)},{to:A.ore,data:S.allowance+wa(m)+wa(A.market)}]))));mk.forEach((m,k)=>{const b=dec[2*k],a=dec[2*k+1];const bb=b&&b.success?BigInt(b.data||"0x0"):0n,aa=a&&a.success?BigInt(a.data||"0x0"):0n;funds[m]=bb<aa?bb:aa;});}catch(e){}}
+      offers.sort((a,b)=>b.price-a.price).forEach(o=>{if(o.maker in funds){o.left=Math.min(o.left,Number(funds[o.maker]/o.pw));funds[o.maker]-=o.pw*BigInt(Math.max(0,o.left));}if(o.left<=0)return;if(o.price>bid[o.ore])bid[o.ore]=o.price;bids[o.ore].push({price:o.price,left:o.left});});}
     const ll=Number(BigInt(await ethCall(A.market,S.lastListing)||"0x0"));
     for(let s=1;s<=ll;s+=240){const calls=[];for(let i=s;i<Math.min(s+240,ll+1);i++)calls.push({to:A.market,data:S.listingOf+w(i)});
       const ids=calls.map((_,k)=>s+k),dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
-      dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});if(!isMine&&amt>=MINLOT)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine});});}
+      dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});allLots[id].push({price,amt,mine:isMine});if(!isMine&&amt>=MINLOT)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine});});}
   }catch(e){log("market read: "+e.message);}
   // resale price = price at cumulative ask depth >= DEPTH_UNITS, ignoring qty-1 dust listings that set a fake floor
   for(let i=0;i<12;i++){const L=ladder[i].sort((a,b)=>a.price-b.price);let cum=0,px=0,pxw=0n;for(const x of L){cum+=x.amt;px=x.price;pxw=x.pw;if(cum>=DEPTH_UNITS)break;}ask[i]=px;askWei[i]=pxw;}
-  ST.bid=bid;ST.ask=ask;ST.askWei=askWei;ST.myListed=myListed;ST.book=book;
+  // depth: every unit listed for sale (all sellers) and the part priced within +10% of the ask; bids sorted best-first
+  const askUnits=Array(12).fill(0),askNear=Array(12).fill(0);for(let i=0;i<12;i++){for(const x of allLots[i]){askUnits[i]+=x.amt;if(ask[i]>0&&x.price<=ask[i]*1.1)askNear[i]+=x.amt;}bids[i].sort((a,b)=>b.price-a.price);}
+  ST.bid=bid;ST.ask=ask;ST.askWei=askWei;ST.myListed=myListed;ST.book=book;ST.askUnits=askUnits;ST.askNear=askNear;ST.bids=bids;ST.allLots=allLots;
   try{ST.mktAllow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.market)));}catch(e){ST.mktAllow=0n;}}
 // cheapest-first plan to buy `need` = {stoneId: qty}; returns grouped buy calls, wei cost, and any shortfall
 function planBuy(need){const byList={},short={};let costWei=0n;
@@ -333,59 +377,134 @@ function encBuy(listingId,ids,amounts){const a=w(ids.length)+ids.map(w).join("")
 // buyBatch(uint256[] listingIds, uint8[][] ids, uint8[][] amounts) — all listings in one tx (selector verified 0x9fd46449)
 function encBuyBatch(calls){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint8[][]","uint8[][]"],[calls.map(c=>c.listingId),calls.map(c=>c.ids),calls.map(c=>c.amounts)]);return S.buyBatch+enc.slice(2);}
 
-// slush balance = sum of your Slush(owner,id,amount) events on the site contract (there is no balanceOf).
-// scanned in parallel 9k-block chunks (RPC caps eth_getLogs at 10k), filtered to your address, retry on failure.
-async function slushBalance(addr){
-  const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,me="0x"+wa(addr);
-  const one=async(f,t,tries)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[SLUSH_TOPIC,me]}]);}catch(e){if(tries>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tries-1);}return [];}};
-  const R=[];for(let b=DEPLOY_BLOCK;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
-  let tot=0n;const PAR=6;
-  for(let i=0;i<R.length;i+=PAR){const res=await Promise.all(R.slice(i,i+PAR).map(([f,t])=>one(f,t,3)));
-    for(const r of res)if(Array.isArray(r))for(const lg of r){const d=lg.data;if(d&&d!=="0x")tot+=BigInt(d.length>66?d.slice(0,66):d);}}
+// slush balance = sum of your Slush(owner,id,amount) events on the site contract (there is no balanceOf). Cached per
+// address; only new blocks are scanned on later loads. A failed chunk stops the scan at the last good block.
+async function slushBalance(addr){const key="mars_slush_v1",me="0x"+wa(addr),head=parseInt(await rpc("eth_blockNumber",[]),16);
+  let c=null;try{c=JSON.parse(localStorage.getItem(key)||"null");}catch(e){}
+  if(!c||c.addr!==me||typeof c.head!=="number"||typeof c.tot!=="string")c={addr:me,head:DEPLOY_BLOCK-1,tot:"0"};
+  let tot=BigInt(c.tot),last=c.head,stop=false;const CH=9000,R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
+  const one=async(f,t,tries)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[SLUSH_TOPIC,me]}]);}catch(e){if(tries>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tries-1);}return null;}};
+  const PAR=6;
+  for(let i=0;i<R.length&&!stop;i+=PAR){const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>one(f,t,3)));
+    for(let k=0;k<part.length;k++){if(!Array.isArray(res[k])){stop=true;break;}for(const lg of res[k]){const d=lg.data;if(d&&d!=="0x")tot+=BigInt(d.length>66?d.slice(0,66):d);}last=part[k][1];}}
+  c.head=last;c.tot=tot.toString();try{localStorage.setItem(key,JSON.stringify(c));}catch(e){}
   return Number(tot);
 }
 // lazy refresh: it's a slow scan, so show "…" (or keep the last value) and fill when done; skip on light refresh once known
 function slushRefresh(light){if(ST.slushAddr!==ST.addr){ST.slush=null;ST.slushAddr=ST.addr;}else if(light&&ST.slush!=null)return;
   const who=ST.addr;slushBalance(who).then(v=>{if(who===ST.addr){ST.slush=v;renderStones();}}).catch(()=>{});}
-// market-wide activity per stone over the last hour AND the hour before (for the trend arrow): units bought, DRILL
-// value traded, and buy count. Value is split across a multi-stone buy by catalog-value weight (exact for single-stone).
-async function marketActivity(){
-  const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,from=Math.max(DEPLOY_BLOCK,head-2*BLOCKS_1H),mid=head-BLOCKS_1H;
-  const one=async(f,t,tries)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.market,topics:[MARKET_SALE_TOPIC]}]);}catch(e){if(tries>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tries-1);}return [];}};
-  const R=[];for(let b=from;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
-  const res=await Promise.all(R.map(([f,t])=>one(f,t,3)));
-  const u=Array(12).fill(0),v=Array(12).fill(0),c=Array(12).fill(0),pv=Array(12).fill(0);   // units, DRILL value, buys (this hr); value (prev hr)
-  for(const r of res)if(Array.isArray(r))for(const lg of r){const d=(lg.data||"").replace(/^0x/,"");if(d.length<192)continue;const W=i=>d.slice(i*64,i*64+64);
-    const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,price=Number(BigInt("0x"+W(2)))/1e18,n=parseInt(W(io),16),now=parseInt(lg.blockNumber,16)>mid;
-    const ids=[],am=[];let tw=0;for(let k=0;k<n;k++){const id=parseInt(W(io+1+k),16),a=parseInt(W(ao+1+k),16);ids.push(id);am.push(a);if(id<12)tw+=a*(STONE[id][1]||1e-4);}
-    for(let k=0;k<n;k++){const id=ids[k];if(id>=12)continue;const share=n===1?1:(tw>0?am[k]*(STONE[id][1]||1e-4)/tw:1/n);
-      if(now){u[id]+=am[k];c[id]++;v[id]+=price*share;}else pv[id]+=price*share;}}
-  return {u,v,c,pv};
-}
-let lastAct=0;
-function actRefresh(){if(Date.now()-lastAct<30000&&ST.act)return;lastAct=Date.now();
-  marketActivity().then(a=>{ST.act=a;renderStones();}).catch(()=>{});}
-// planet-wide upcoming production: scan rig-deploy events -> each rig's {readyAt, tier}. Cache the last ~8h ONCE,
-// then only pull the new blocks since last scan on each refresh; ripened rigs are pruned client-side.
-async function scanDeploys(fromBlk,toBlk){
-  const CH=9000,one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[DEPLOY_TOPIC]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tr-1);}return [];}};
-  const R=[];for(let b=fromBlk;b<=toBlk;b+=CH)R.push([b,Math.min(b+CH-1,toBlk)]);
-  const out=[],PAR=8;
-  for(let i=0;i<R.length;i+=PAR){const res=await Promise.all(R.slice(i,i+PAR).map(([f,t])=>one(f,t,3)));
-    for(const r of res)if(Array.isArray(r))for(const lg of r){const d=(lg.data||"").replace(/^0x/,"");if(d.length<128)continue;const ready=parseInt(d.slice(0,64),16)*1000,tier=DUR2TIER[parseInt(d.slice(64,128),16)];if(tier!==undefined)out.push({ready,tier});}}
-  return out;
-}
-let prodBusy=false;
-async function prodRefresh(){
-  if(prodBusy)return;prodBusy=true;
-  try{
-    const head=parseInt(await rpc("eth_blockNumber",[]),16);
-    if(ST.depHead==null){ST.deploys=await scanDeploys(Math.max(DEPLOY_BLOCK,head-BLOCKS_8H),head);ST.depHead=head;}
-    else if(head>ST.depHead){const nu=await scanDeploys(ST.depHead+1,head);if(nu.length)ST.deploys=ST.deploys.concat(nu);ST.depHead=head;}
-    const now=Date.now();ST.deploys=(ST.deploys||[]).filter(x=>x.ready>now);   // drop ripened -> cache stays bounded to the next 8h
-    renderProd();
-  }catch(e){}finally{prodBusy=false;}
-}
+// ---- history cache: ONE merged eth_getLogs stream — rig deploys (site) + fills, bid fills, listings and cancels (market) —
+// persisted in localStorage. First load on a device scans the whole (young) game once; every refresh after that fetches
+// only the blocks since the last scan (normally a single call). Chunks retry with backoff and a failed chunk stops the
+// scan at the last contiguous good block, so the cache never has holes — the next refresh simply continues from there. ----
+const HIST_TOPICS=[DEPLOY_TOPIC,MARKET_SALE_TOPIC,OFFER_FILL_TOPIC,LISTED_TOPIC,CANCEL_TOPIC];
+function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorage.getItem(HIST_LS);if(s){h=JSON.parse(s);if(!h||h.v!==2||!Array.isArray(h.dep)||!Array.isArray(h.sal)||typeof h.head!=="number")h=null;}}catch(e){h=null;}
+  ST.hist=h||{v:2,head:null,headTs:0,spb:SPB_DEFAULT,dep:[],sal:[]};return ST.hist;}
+let histSaved=0;
+function histSave(force){const h=ST.hist;if(!h||h.head==null||(!force&&Date.now()-histSaved<60000))return;histSaved=Date.now();try{localStorage.setItem(HIST_LS,JSON.stringify(h));}catch(e){}}
+const blkTime=b=>{const h=ST.hist;return (h.headTs-(h.head-b)*h.spb)*1000;};   // block → wall-clock ms via the measured seconds/block
+async function histChunk(f,t,tries){try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.market],topics:[HIST_TOPICS]}]);}
+  catch(e){if(tries>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tries)));return histChunk(f,t,tries-1);}return null;}}
+// rows — deploy: [readyAt(s), tier]. market: [block, stone, units, DRILL value, kind] with kind 0 = part of a multi-stone
+// buy (value split by catalog weight), 1 = single-stone fill (exact unit price), 2 = listed (value = units × list price),
+// 3 = cancelled, 4 = sold into a bid. Kinds 0/1/4 are units bought (demand); 2/3 are units entering/leaving the ask side.
+function histIngest(logs){const h=ST.hist,site=A.site.toLowerCase();
+  for(const lg of logs){const d=(lg.data||"").replace(/^0x/,""),W=i=>d.slice(i*64,i*64+64),tp=lg.topics&&lg.topics[0],blk=parseInt(lg.blockNumber,16);
+    if((lg.address||"").toLowerCase()===site){if(d.length<128)continue;const tier=DUR2TIER[parseInt(W(1),16)];if(tier!==undefined)h.dep.push([parseInt(W(0),16),tier]);continue;}
+    if(tp===MARKET_SALE_TOPIC){if(d.length<192)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,price=Number(BigInt("0x"+W(2)))/1e18,k=parseInt(W(io),16);
+      const ids=[],am=[];let tw=0;for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);ids.push(id);am.push(a);if(id<12)tw+=a*(STONE[id][1]||1e-4);}
+      for(let j=0;j<k;j++){const id=ids[j];if(id>=12||am[j]<=0)continue;const share=k===1?1:(tw>0?am[j]*(STONE[id][1]||1e-4)/tw:1/k);h.sal.push([blk,id,am[j],+(price*share).toPrecision(6),k===1?1:0]);}}
+    else if(tp===OFFER_FILL_TOPIC){if(d.length<256)continue;const ore=parseInt(W(0),16),amt=parseInt(W(1),16),tot=Number(BigInt("0x"+W(2)))/1e18;if(ore<12&&amt>0)h.sal.push([blk,ore,amt,+tot.toPrecision(6),4]);}
+    else if(tp===LISTED_TOPIC||tp===CANCEL_TOPIC){if(d.length<128)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,po=tp===LISTED_TOPIC?parseInt(W(2),16)/32:0,k=parseInt(W(io),16);
+      for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);if(id>=12||a<=0)continue;const v=po?Number(BigInt("0x"+W(po+1+j)))/1e18*a:0;h.sal.push([blk,id,a,+v.toPrecision(6),tp===LISTED_TOPIC?2:3]);}}}}
+let histBusy=false;
+function histProgress(txt){ST.histProg=txt;const r=$("prodR");if(r)r.textContent=txt||"planet · 5m · 8h";const wb=$("waveBody");if(txt&&wb&&!ST.stats)wb.innerHTML='<div class="sub">'+txt+'</div>';}
+async function histRefresh(){if(histBusy)return;histBusy=true;
+  try{const h=histLoad();
+    const hb=await rpc("eth_getBlockByNumber",["latest",false]);const head=parseInt(hb.number,16),headTs=parseInt(hb.timestamp,16);
+    if(h.head==null){   // first load on this device: measure s/block over the window, then scan it all
+      const from=Math.max(DEPLOY_BLOCK,head-Math.round((HIST_KEEP_H+8)*3600/SPB_DEFAULT));
+      try{const ob=await rpc("eth_getBlockByNumber",["0x"+from.toString(16),false]);const s=(headTs-parseInt(ob.timestamp,16))/Math.max(1,head-from);if(s>0.01&&s<10)h.spb=s;}catch(e){}
+      h.head=from-1;h.headTs=headTs-(head-from+1)*h.spb;h.dep=[];h.sal=[];}
+    if(head>h.head){const CH=9000,R=[];for(let b=h.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
+      const PAR=6;let last=h.head,stop=false;
+      for(let i=0;i<R.length&&!stop;i+=PAR){if(R.length>3)histProgress("scanning history "+Math.round(100*i/R.length)+"%…");
+        const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>histChunk(f,t,4)));
+        for(let k=0;k<part.length;k++){if(!Array.isArray(res[k])){stop=true;break;}histIngest(res[k]);last=part[k][1];}}
+      h.head=last;h.headTs=headTs-(head-last)*h.spb;if(stop)log("history scan paused at block "+last+" (RPC busy) — continues next refresh");}
+    histProgress(head>h.head?"scanning history…":"");
+    const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 30h of ripenings (past+future) and market rows
+    h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
+    ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1]}));ST.depHead=h.head;
+    histSave(false);histStats();renderProd();renderStones();renderWaves();renderOpt();
+  }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
+// ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
+const med=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;};
+function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.now(),NB=PAST_NB+FUT_NB,bw=WB*3.6e6,bk=t=>Math.floor((t-now)/bw)+PAST_NB;
+  const Z=()=>Array(12).fill(0),G=n=>Array.from({length:12},()=>Array(n).fill(0));
+  const sup=G(NB),vol=G(PAST_NB),lvol=G(PAST_NB),supT=G(5),fills=Array.from({length:12},()=>Array.from({length:PAST_NB},()=>[]));
+  const u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),l2=Z(),c2=Z(),l24=Z(),r24=Z(),a2=Z();
+  for(const x of h.dep){const b=bk(x[0]*1000);if(b<0||b>=NB)continue;const t=TIERS[x[1]];for(let s=0;s<12;s++){const o=t.odds[s];if(o){const u=t.tray*o/1e4;sup[s][b]+=u;if(b<PAST_NB){r24[s]+=u;supT[s][x[1]]+=u;}}}}
+  const t1=now-3.6e6,t2=now-7.2e6,t24=now-24*3.6e6;
+  for(const x of h.sal){const t=blkTime(x[0]),s=x[1],k=x[4],b=bk(t);
+    if(k===2){if(t>t2)l2[s]+=x[2];if(t>t24)l24[s]+=x[2];if(b>=0&&b<PAST_NB)lvol[s][b]+=x[2];continue;}
+    if(k===3){if(t>t2)c2[s]+=x[2];continue;}
+    if(t>t1){u1[s]+=x[2];v1[s]+=x[3];c1[s]++;}else if(t>t2){pv[s]+=x[3];pu[s]+=x[2];}if(t>t24)u24[s]+=x[2];if(t>t2&&k!==4)a2[s]+=x[2];
+    if(b<0||b>=PAST_NB)continue;vol[s][b]+=x[2];if(k===1||k===4)fills[s][b].push(x[3]/x[2]);}
+  ST.act={u:u1,v:v1,c:c1,pv,pu};   // Stones table "1h $ / u·n" + trend arrow (asks bought + bids hit)
+  ST.stats=STONE.map((_,s)=>{
+    const dem=(u1[s]+pu[s])/2,dem24=u24[s]/24,lst=l2[s]/2,cnl=c2[s]/2,net=lst-cnl-a2[s]/2;   // per hour over the last 2h: bought (asks+bids) · listed · cancelled · net growth of the ask side (listed − cancelled − asks bought)
+    const f=r24[s]>0?Math.min(1.5,l24[s]/r24[s]):0.5;   // share of ripened ore that actually gets listed (24h)
+    const P=sup[s].slice(0,PAST_NB),base=P.reduce((a,b)=>a+b,0)/PAST_NB;   // typical ripening per 30 min over the past 24h (all tiers)
+    // a future bucket ending t hours ahead can only hold rigs that run ≥ t (planted by now), so its norm = past average of those tiers
+    const KB=t=>TIERS.reduce((a,T,k)=>a+(T.h>=t-1e-9?supT[s][k]/PAST_NB:0),0);
+    const S2=sup[s].slice(PAST_NB,PAST_NB+4).reduce((a,b)=>a+b,0),S8=sup[s].slice(PAST_NB).reduce((a,b)=>a+b,0);
+    // sellers' lag: the shift (0–4h) at which ripening best predicts listing volume (sold volume if nothing was listed)
+    const ser=l24[s]>0?lvol[s]:vol[s];let lag=1,lagR=0;for(let L=0;L<=8;L++){let ma=0,mb=0,m=0;for(let b=0;b+L<PAST_NB;b++){ma+=P[b];mb+=ser[b+L];m++;}ma/=m;mb/=m;let sab=0,saa=0,sbb=0;for(let b=0;b+L<PAST_NB;b++){const x=P[b]-ma,y=ser[b+L]-mb;sab+=x*y;saa+=x*x;sbb+=y*y;}const c=saa&&sbb?sab/Math.sqrt(saa*sbb):0;if(c>lagR){lagR=c;lag=L*WB;}}
+    // a burst = a 30-min bucket ripening ≥1.5× its norm; its size is the excess over that norm
+    const ex=b=>{const nb=b<PAST_NB?base:KB((b-PAST_NB+1)*WB),v=sup[s][b];return v>=1.5*nb&&v-nb>=1?v-nb:0;},isPeak=b=>{for(let k=Math.max(0,b-2);k<=Math.min(NB-1,b+2);k++)if(sup[s][k]>sup[s][b])return false;return true;};
+    let nw=null;for(let b=PAST_NB;b<NB;b++){const e=ex(b);if(e>=1&&isPeak(b)&&(!nw||e>nw.ex))nw={t:(b-PAST_NB+0.5)*WB,u:sup[s][b],ex:e};}   // biggest upcoming burst
+    let due=0;for(let b=0;b<PAST_NB;b++){const ago=(PAST_NB-b-0.5)*WB;if(ago>=lag-0.25&&ago<=lag+2)due+=ex(b);}   // bursts that ripened lag…lag+2h ago → their sellers are listing about now
+    // realized effect of past bursts (excess × listed share ≥ 1.5h of buys): 30-min median unit price 2h after vs 1h
+    // before, minus the same measure at non-burst times (removes the market trend). Reported with n — small n is noisy.
+    const px=Array(PAST_NB).fill(NaN);let lastp=NaN;for(let b=0;b<PAST_NB;b++){const q=fills[s][b];if(q.length>=2)lastp=med(q);px[b]=lastp;}
+    const ret=b=>{const bef=[],aft=[];for(let k=b-2;k<b;k++)if(k>=0&&!isNaN(px[k]))bef.push(px[k]);for(let k=b;k<b+4;k++)if(k<PAST_NB&&!isNaN(px[k]))aft.push(px[k]);if(bef.length<1||aft.length<2)return NaN;return Math.log(med(aft)/med(bef));};
+    const bigT=Math.max(1.5*dem,20),waves=[];for(let b=2;b<=PAST_NB-5;b++)if(ex(b)*f>=bigT&&isPeak(b))waves.push(b);
+    const rw=[],rc=[];for(const b of waves){const r=ret(b);if(!isNaN(r))rw.push(r);}for(let b=2;b<=PAST_NB-5;b++){if(waves.some(w=>Math.abs(w-b)<3))continue;const r=ret(b);if(!isNaN(r))rc.push(r);}
+    const dPct=rw.length&&rc.length?Math.exp(med(rw)-med(rc))-1:NaN;
+    return{dem,dem24,lst,cnl,net,f,base,S2,S8,lag,lagR,nw,due,dPct,n:rw.length,px:lastp};});}
+// ---- per-stone sell signal (tool 3): upcoming bursts × sellers' lag vs what the book absorbs, else the book's own trend ----
+function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st.dem||st.dem24,an=(ST.askNear&&ST.askNear[i])||0,au=(ST.askUnits&&ST.askUnits[i])||0;
+  const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
+  const big=e=>e*st.f>=thr,hit=st.nw?st.nw.t+st.lag:Infinity,clear=dem>0&&st.net<0?an/(-st.net):Infinity;
+  const pm=x=>(x>=0?"+":"−")+fmtK(Math.abs(x));
+  let tip="book: listed "+fmtK(st.lst)+"/h · cancelled "+fmtK(st.cnl)+"/h · bought "+fmtK(dem)+"/h → net "+pm(st.net)+"/h · ask depth "+fmtK(au)+" ("+fmtK(an)+" within +10%"+(clear<48?", clears in ~"+fmtDur(clear):"")+")";
+  tip+=" · next 2h: "+fmtK(st.S2)+" u ripening, ~"+Math.round(st.f*100)+"% gets listed"+(dem?" = "+Math.round(100*st.S2*st.f/(2*dem))+"% of what buyers take in 2h":"");
+  tip+=st.nw?" · biggest burst +"+fmtDur(st.nw.t)+": "+fmtK(st.nw.u)+" u ("+fmtK(st.nw.ex)+" above normal), sellers due ~+"+fmtDur(hit):" · no burst above normal in the next 8h";
+  tip+=" · sellers list ~"+fmtDur(st.lag)+" after ripening (r "+st.lagR.toFixed(2)+")"+(isNaN(st.dPct)?"":" · past bursts: "+(st.dPct>=0?"+":"")+Math.round(st.dPct*100)+"% after (n="+st.n+")");
+  let r;if(st.nw&&big(st.nw.ex)&&hit<=1.5)r={k:"now",txt:"⚡ sell now",col:"var(--red)"};
+  else if(st.nw&&big(st.nw.ex)&&hit<=8.5)r={k:"by",txt:"⏳ sell <"+fmtDur(Math.max(0.5,Math.floor((hit-0.5)*2)/2)),col:"var(--gold)"};
+  else if(big(st.due))r={k:"dip",txt:"🎯 dip · wait",col:"var(--blue)"};
+  else if(!dem&&!st.lst)r={k:"quiet",txt:"· quiet",col:"var(--mut2)"};
+  else if(st.net>0.3*dem)r={k:"glut",txt:"▼ glut · sell",col:"var(--red)"};
+  else if(st.net<-0.3*dem)r={k:"scarce",txt:"▲ scarce · hold",col:"var(--green)"};
+  else r={k:"ok",txt:"✓ balanced",col:"var(--green)"};
+  r.tip=tip;return r;}
+// tapping a stone row (Stones or Wave table) opens its numbers inline — phones have no hover tooltips
+function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();renderWaves();}
+const detRow=(i,cols)=>{if(ST.rowOpen!==i)return'';const sg=sigOf(i);return sg?'<tr class="det"><td colspan="'+cols+'">'+sg.tip+'</td></tr>':'';};
+// ---- tool 2: wave pressure table ----
+function renderWaves(){const el=$("waveBody");if(!el)return;const S=ST.stats;if(!S){el.innerHTML='<div class="sub">'+(ST.histProg||'scanning history…')+'</div>';return;}
+  const rows=STONE.map((s,i)=>{const st=S[i],sg=sigOf(i),dem=st.dem||st.dem24,au=(ST.askUnits&&ST.askUnits[i])||0,an=(ST.askNear&&ST.askNear[i])||0,dim=st.S8<1&&!au&&!dem;
+    const c=(top,sub,tc,sc)=>`<td class=n><div class="stk"><span${tc?' style="color:'+tc+'"':''}>${top}</span><div class="s"${sc?' style="color:'+sc+'"':''}>${sub}</div></div></td>`;
+    const hb=dem?st.S2*st.f/(2*dem):Infinity,hbCol=!isFinite(hb)||hb>=1.5?'var(--red)':hb>=1?'var(--gold)':'',netCol=st.net>0.3*dem?'var(--red)':st.net<-0.3*dem?'var(--green)':'';
+    return `<tr${dim?' class="pempty"':''} onclick="rowTap(${i})"><td class=nm><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut)'}">${sg?sg.txt:'–'}</div></div></td>`
+      +c(st.nw?'+'+fmtDur(st.nw.t):'<span class=muted>–</span>',st.nw?fmtK(st.nw.ex)+' extra':'',st.nw&&sg&&(sg.k==='now'||sg.k==='by')?sg.col:'')
+      +c(st.S2>=1?fmtK(st.S2):'<span class=muted>–</span>',st.S2>=1?(dem?Math.round(hb*100)+'% buys':'no buyers'):'',st.S2>=1?hbCol:'',st.S2>=1?hbCol:'')
+      +c((st.lst||dem||st.cnl)?(st.net>=0?'+':'−')+fmtK(Math.abs(st.net))+'/h':'<span class=muted>–</span>',au?fmtK(an)+' near ask':'',netCol)
+      +c(fmtDur(st.lag),'r '+st.lagR.toFixed(2),'',st.lagR<0.2?'var(--mut2)':'')
+      +c(isNaN(st.dPct)?'<span class=muted>–</span>':(st.dPct>=0?'+':'')+Math.round(st.dPct*100)+'%',isNaN(st.dPct)?'':'n'+st.n+(st.n<3?' ≈':''),isNaN(st.dPct)?'':(st.dPct<-0.05?'var(--red)':st.dPct>0.05?'var(--green)':''),st.n<3?'var(--mut2)':'')+'</tr>'+detRow(i,6);}).join("");
+  el.innerHTML='<table id="waveTbl"><colgroup><col style="width:86px"><col style="width:46px"><col style="width:52px"><col style="width:58px"><col style="width:34px"><col style="width:44px"></colgroup><thead><tr><th>Stone<br>signal</th><th class=n title="biggest upcoming 30-min ripening burst in the next 8h: when · units above the recent norm">Burst<br>extra</th><th class=n title="units ripening planet-wide in the next 2h · the share that gets listed, as % of what buyers take in 2h">Next 2h<br>vs buys</th><th class=n title="net growth of the ask side per hour (listed − cancelled − bought, last 2h) · units listed within +10% of the lowest ask">Book<br>near ask</th><th class=n title="how long after ripening sellers actually list (ripening→listing correlation, past 24h); r = strength">Lag<br>r</th><th class=n title="median price 2h after vs 1h before past bursts, minus the market trend · n = bursts measured (≈ = too few)">Past<br>Δ</th></tr></thead><tbody>'+rows+'</tbody></table>';}
 // one row per stone: a 5-min-bucket histogram of expected units ripening across the planet over the next 8h (per-row scaled)
 function renderProd(){
   const body=$("prodBody");if(!body)return;
@@ -399,17 +518,13 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=false;renderRig();renderProd();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=false;renderRig();renderProd();renderWaves();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
-  actRefresh();          // market activity (value/units/buys + trend), throttled to 30s
-  prodRefresh();         // planet production timeline: 8h scan cached once, then incremental new-block scan
-  const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
+  histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
+  const [drillRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
-  let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
-  ST.free=(ws.length>=7&&parseInt(ws[0],16)===32&&parseInt(ws[1],16)===5?ws.slice(2,7):ws.slice(0,5)).map(x=>parseInt(x||"0",16));
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
-  $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);$("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n[0]:"").filter(Boolean).join(" ");
   const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
@@ -434,8 +549,8 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   renderPort();renderDeploy();renderRig();renderStones();fillUpSel();loadCosts().then(fillUpSel);
-  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();
-  if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+", "+ST.free.reduce((a,b)=>a+b,0)+" free rigs · "+(ST.canSign?"can sign":"read-only"),"s-ok");
+  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();
+  if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
   startAuto();
 }catch(e){if(!quiet)setS("Load failed: "+e.message,"s-err");log("ERR "+e.message);}finally{REFRESHING=false;}}
@@ -452,7 +567,7 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
   const best=rows.reduce((a,b)=>b.r>a.r?b:a,rows[0]);
   if($("rigCardNote"))$("rigCardNote").textContent=mkt?"DRILL find + ore resale":"loading prices…";
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n title='DRILL minted on collect'>DRILL</th><th class=n title='ore resale value'>ore</th><th class=n>×</th><th class=n>/h</th></tr></thead><tbody>"+rows.map(({t,drill,ore,r,ph})=>`<tr${t===best.t?' style="background:#171008"':''}><td>${t.n}${t===best.t?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(drill)}</td><td class="n ${ore?'':'muted'}">${mkt?fmt(ore):'…'}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`).join("")+"</tbody>";
-  if($("rigNote"))$("rigNote").innerHTML='Collect mints <b>DRILL ≈ 96% of cost</b> + the ore + a small owner/planter bonus. <span class="grn">Free rigs = pure profit</span> (~'+fmt(rigDrill(TIERS[2]))+' DRILL + ore per free Driller). Paid rigs ≈ break-even — the <b>ore is your margin</b>'+(mkt?', best on <b>'+best.t.n+'</b>':'')+'.';}
+  if($("rigNote"))$("rigNote").innerHTML=mkt?'DRILL ≈ 96% of cost back · ore is the margin · best <b>'+best.t.n+'</b>':'';}
 function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
   const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
@@ -474,10 +589,12 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
         const tt=fmt(uv)+' '+s[0]+' bought · '+fmtK(dv)+' DRILL · '+fmt(ct)+' buy'+(ct===1?'':'s')+(pvv>0?' · '+(tr>=0?'+':'')+Math.round(tr*100)+'% vs prev hr':'');
         actCell=`<div class="stk" title="${tt}"><span class="b">${fmtK(dv)}</span> ${ar}<div class="s">${fmtK(uv)}·${fmt(ct)}</div></div>`;}}
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
-    return `<tr><td class=n>${cb}</td><td class=nm><span class=swatch style="background:${s[2]}"></span>${s[0]}</td>`
+    const sg=sigOf(i);let tip=sg?sg.tip:'';   // + how long the units ahead of my cheapest listing take to clear at the current buy rate
+    if(sg&&myFront[i]!==null&&ST.allLots){const mf=Number(myFront[i])/1e18,dem=ST.stats[i].dem||ST.stats[i].dem24;const ahead=ST.allLots[i].reduce((a,x)=>a+(!x.mine&&x.price<=mf?x.amt:0),0);tip+=' · '+fmtK(ahead)+' u ahead of your '+fmt(mf,mf<1?4:2)+' ask'+(dem?' ≈ '+(ahead/dem).toFixed(1)+'h to reach you':'');}
+    return `<tr><td class=n>${cb}</td><td class=nm title="${tip}" onclick="rowTap(${i})"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut2)'}">${sg?sg.txt:(ST.histProg?'…':'')}</div></div></td>`
       +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s"${lst?' style="color:var(--gold)"':''}>${lst?fmt(lst):'–'}</div></div></td>`
-      +`<td class=n><div class="stk"><span class="${a?'red':'muted'}">${a?fmt(a,2):'–'}</span><div class="s"${b?' style="color:var(--green)"':''}>${b?fmt(b,2):'–'}</div></div></td>`
-      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`;}).join("")
+      +`<td class=n><div class="stk"><span class="${a?'red':'muted'}">${a?(a>=1000?fmtK(a):fmt(a,2)):'–'}</span><div class="s"${b?' style="color:var(--green)"':''}>${b?(b>=1000?fmtK(b):fmt(b,2)):'–'}</div></div></td>`
+      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`+(ST.rowOpen===i&&sg?'<tr class="det"><td colspan="6">'+tip+'</td></tr>':'');}).join("")
     +`<tr style="opacity:.85"><td class=n></td><td class=nm><span class=swatch style="background:${SLUSH.color}"></span>${SLUSH.name}</td><td class="n ${ST.slush?'':'muted'}">${ST.slush==null?'…':fmt(ST.slush)}</td><td class="n muted" colspan=2 style="text-align:center;font-size:9px" title="collected with rigs · refining coming soon">no market yet</td><td class="n act"><span class="muted" style="font-size:10px">soon</span></td></tr>`+"</tbody>";
   renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
@@ -689,7 +806,7 @@ async function sortByLevel(ids){if(ids.length<2)return{ids,lv:{}};const lv={};co
 async function selectPlantable(idsPriority,want,tier,maxWei){const good=[],reasons={};
   const CAP=Math.min(idsPriority.length,Math.max(want+12,want*3,14),96),batch=idsPriority.slice(0,CAP),CH=18;
   for(let i=0;i<batch.length&&good.length<want;i+=CH){const chunk=batch.slice(i,i+CH);
-    const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encCredits([id],[tier],maxWei),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false,why:decodeErr(e)};}}));
+    const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encDeploy([id],[tier],maxWei),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false,why:decodeErr(e)};}}));
     for(const r of res){if(r.ok){good.push(r.id);}else{reasons[r.why]=(reasons[r.why]||0)+1;}}}
   return{good:good.slice(0,want),reasons};}
 // pack ids into {parcels,tiers} using available credits (best tier on highest-priority plot), then sort ASCENDING for the contract
@@ -697,30 +814,30 @@ function packAscending(idsPriority,avail,order){const av=avail.slice(),pairs=[];
   for(const t of order)while(av[t-1]>0&&gi<idsPriority.length){pairs.push({id:idsPriority[gi],tier:t});av[t-1]--;gi++;}
   pairs.sort((a,b)=>a.id-b.id);return{parcels:pairs.map(p=>p.id),tiers:pairs.map(p=>p.tier)};}
 const reasonStr=r=>Object.entries(r).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>k+" ×"+v).join(" · ");
-// ---- unified deploy (free credits used first, then paid DRILL; respects the 100-rig cap) ----
+// ---- deploy (respects the 100-rig cap) ----
 function renderDeploy(){const capLeft=Math.max(0,RIGCAP-ST.active);
   $("rigCap").innerHTML=ST.active+"/"+RIGCAP+" rigs"+(capLeft?' · '+capLeft+' free':' · <span class="gold">FULL</span>');
   const cur=parseInt($("depTier").value)||3,mkt=mktReady();
-  $("depTier").innerHTML=TIERS.map(t=>{const ev=mkt?rigEVmkt(t):rigEV(t),fr=ST.free[t.t-1]||0;return `<option value="${t.t}"${t.t===cur?' selected':''}>${t.n} · ${t.c} DRILL · ${fmtDur(t.h)} · ${(ev/t.c).toFixed(2)}×${fr?` · ${fr} free`:''}</option>`;}).join("");
+  $("depTier").innerHTML=TIERS.map(t=>{const ev=mkt?rigEVmkt(t):rigEV(t);return `<option value="${t.t}"${t.t===cur?' selected':''}>${t.n} · ${t.c} DRILL · ${fmtDur(t.h)} · ${(ev/t.c).toFixed(2)}×</option>`;}).join("");
   depEcon();
   $("collectSub").innerHTML=ST.ready?('<span class="gold">'+ST.ready+' ready to collect</span> · reveal is on-site'):(ST.nextAt?('next in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+' · collect on site'):'reveal is operator-signed — on site');}
 // compact "L11×2 · L9" histogram of plot levels
 function lvHist(ls){const m={};ls.forEach(l=>{m[l]=(m[l]||0)+1;});return Object.keys(m).map(Number).sort((a,b)=>b-a).map(k=>'L'+k+(m[k]>1?'×'+m[k]:'')).join(' · ');}
 function depEcon(){const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
-  const capLeft=Math.max(0,RIGCAP-ST.active),want=Math.min(n,capLeft),fr=ST.free[t.t-1]||0,freeUse=Math.min(fr,want),paid=want-freeUse,cost=paid*t.c;
+  const capLeft=Math.max(0,RIGCAP-ST.active),want=Math.min(n,capLeft),cost=want*t.c;
   const drill=rigDrill(t),ore=mktReady()?rigEVmkt(t):0,yield1=drill+ore;
   let s;
   if(capLeft<=0)s='<span class="red">At '+RIGCAP+'/'+RIGCAP+' rig cap.</span> '+(ST.ready?ST.ready+' ready — ':'')+(ST.nextAt?'next finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+'Collect (in-game) to free slots.';
-  else{s=want+'× '+t.n+' · '+fmtDur(t.h)+' · ';s+=freeUse?freeUse+' free':'';s+=(freeUse&&paid?' + ':'')+(paid?paid+' paid ('+fmt(cost)+' DRILL)':'');
+  else{s=want+'× '+t.n+' · '+fmtDur(t.h)+' · '+fmt(cost)+' DRILL';
     s+=' · yields ~'+fmt(drill)+' DRILL'+(ore?'+'+fmt(ore)+' ore':'')+' ea ('+(yield1/t.c).toFixed(2)+'×) · rigs '+ST.active+'→'+(ST.active+want)+'/'+RIGCAP;
-    if(paid){const need=BigInt(cost)*10n**18n;if(ST.drill<cost)s+=' · <span class="red">need '+fmt(cost)+' DRILL, have '+fmt(ST.drill)+'</span>';else if(ST.allow<need)s+=' · <span class="gold">tap Approve first</span>';}
+    {const need=BigInt(cost)*10n**18n;if(ST.drill<cost)s+=' · <span class="red">need '+fmt(cost)+' DRILL, have '+fmt(ST.drill)+'</span>';else if(ST.allow<need)s+=' · <span class="gold">tap Approve first</span>';}
     // preview: the plots Place will use — your empty plots highest-level first (max personal take), then others' to fill
     if(ST.plots&&ST.plots.length){const ownEmpty=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id);
       const pick=ownEmpty.slice(0,want),sf=want-pick.length,ext=$("depExt")&&$("depExt").checked;
       const ownBonus=pick.reduce((a,p)=>a+drill*1.25*(OWNBONUS[p.level]||0)/100,0);
       let pv=pick.length?('<b>'+lvHist(pick.map(p=>p.level))+'</b> yours'):'';
       if(sf>0)pv+=(pick.length?' · ':'')+(ext?('<span class="gold">+'+sf+' others’ (¼ bonus)</span>'):('<span class="red">'+sf+' more need others’ — tick it</span>'));
-      const placeN=pick.length+(ext?sf:0),freeN=Math.min(fr,placeN),costN=Math.max(0,placeN-freeN)*t.c,net=placeN*yield1+ownBonus-costN;
+      const placeN=pick.length+(ext?sf:0),costN=placeN*t.c,net=placeN*yield1+ownBonus-costN;
       s+='<div style="margin-top:5px;opacity:.92">↳ plots: '+(pv||'—')+' · self-plant bonus <span class="grn">+'+fmt(ownBonus,1)+'</span> DRILL · net ~<b class="grn">'+fmt(net)+'</b></div>';}}
   $("depEcon").innerHTML=s;}
 async function approveDrill(){const o=$("depOut");if(!await guardChain(o))return;const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
@@ -731,10 +848,10 @@ async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;S
   const t=parseInt($("depTier").value)||3,tier=TIERS[t-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1)),ext=$("depExt").checked;
   const capLeft=Math.max(0,RIGCAP-ST.active);
   if(capLeft<=0){o.innerHTML='<div class="status s-err">At '+RIGCAP+'/'+RIGCAP+' rig cap — every plot reverts until slots free up. '+(ST.nextAt?'Next rig finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+(ST.ready?'<b>'+ST.ready+' ready now</b> — ':'')+'Collect in-game, then Place.</div>';return;}
-  const want=Math.min(n,capLeft),fr=ST.free[t-1]||0,paidCount=Math.max(0,want-fr),perWei=BigInt(tier.c)*10n**18n;
-  if(paidCount>0){const need=BigInt(paidCount*tier.c)*10n**18n;
-    if(ST.drill<paidCount*tier.c){o.innerHTML='<div class="status s-err">Need '+fmt(paidCount*tier.c)+' DRILL for '+paidCount+' paid '+tier.n+', have '+fmt(ST.drill)+'.</div>';return;}
-    if(ST.allow<need){o.innerHTML='<div class="status s-err">Tap <b>Approve</b> first — need '+fmt(paidCount*tier.c)+' DRILL approved (have '+fmt(Number(ST.allow)/1e18)+').</div>';return;}}
+  const want=Math.min(n,capLeft),perWei=BigInt(tier.c)*10n**18n;
+  {const need=BigInt(want*tier.c)*10n**18n;
+    if(ST.drill<want*tier.c){o.innerHTML='<div class="status s-err">Need '+fmt(want*tier.c)+' DRILL for '+want+'× '+tier.n+', have '+fmt(ST.drill)+'.</div>';return;}
+    if(ST.allow<need){o.innerHTML='<div class="status s-err">Tap <b>Approve</b> first — need '+fmt(want*tier.c)+' DRILL approved (have '+fmt(Number(ST.allow)/1e18)+').</div>';return;}}
   const own=new Set(ST.plots.map(p=>p.id));
   const idLevel={};ST.plots.forEach(p=>{idLevel[p.id]=p.level;});
   o.innerHTML='<div class="status s-wait">Finding plantable plots…</div>';
@@ -742,22 +859,22 @@ async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;S
   if(pool.length<want&&ext){let found=await scanExternal(want-pool.length+40,own);const sl=await sortByLevel(found);Object.assign(idLevel,sl.lv);found=sl.ids;pool=pool.concat(found.filter(id=>!pool.includes(id)));}
   if(!pool.length){o.innerHTML='<div class="status s-err">No empty plots'+(ext?'':' — tick “others’”')+'.</div>';return;}
   o.innerHTML='<div class="status s-wait">Checking '+Math.min(pool.length,want+12)+' plots…</div>';
-  const probeWei=paidCount>0?perWei:0n;
+  const probeWei=perWei;
   let {good,reasons}=await selectPlantable(pool,want,t,probeWei);
   if(!good.length){o.innerHTML='<div class="status s-err">No plot accepts a rig now'+(Object.keys(reasons).length?' ('+reasonStr(reasons)+')':'')+'.</div>';return;}
   const mkAvail=k=>{const a=[0,0,0,0,0];a[t-1]=k;return a;};
   let {parcels,tiers}=packAscending(good,mkAvail(good.length),[t]);
-  const paidNow=Math.max(0,parcels.length-fr),maxWei=BigInt(paidNow*tier.c)*10n**18n;
+  const maxWei=BigInt(parcels.length*tier.c)*10n**18n;
   let extN=parcels.filter(id=>!own.has(id)).length;
   o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external)…</div>';
-  let data=encCredits(parcels,tiers,maxWei);
+  let data=encDeploy(parcels,tiers,maxWei);
   try{await ethCall(A.site,data,ST.addr);}
   catch(e){const re=await selectPlantable(parcels,parcels.length,t,probeWei);
     if(!re.good.length){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e)+'. Tap Place again.</div>';return;}
     ({parcels,tiers}=packAscending(re.good,mkAvail(re.good.length),[t]));extN=parcels.filter(id=>!own.has(id)).length;
-    const pn=Math.max(0,parcels.length-fr);data=encCredits(parcels,tiers,BigInt(pn*tier.c)*10n**18n);
+    data=encDeploy(parcels,tiers,BigInt(parcels.length*tier.c)*10n**18n);
     try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external'+(paidNow?', '+paidNow+' paid':'')+') ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
+  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external) ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
   catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}
   }finally{ST.busy=false;}}
 async function waitTx(h){for(let i=0;i<50;i++){try{const r=await rpc("eth_getTransactionReceipt",[h]);if(r&&r.blockNumber)return r;}catch(e){}await new Promise(res=>setTimeout(res,400));}return null;}
@@ -799,17 +916,66 @@ window.upgradePlot=upgradePlot;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
+// ---- tool 1: DRILL/h optimizer. Per rig: minted DRILL (JZ schedule) + ore sold at ask or bid net of the 5% market fee
+// (Sand Rock/Rust = 0) + self-plant bonus on the plots it actually lands on − cost. A slot is busy for max(rig time,
+// your re-plant interval). The mix maximises DRILL/h under the two real limits — open rig slots and DRILL balance
+// (LP over slots×capital, exact at the vertices, rounded to whole rigs). ----
+const OPT={bid:false,minH:0.5,ext:true};
+const oreVal=(t,useBid)=>t.tray*t.odds.reduce((a,o,i)=>{if(DUST(i)||!o)return a;const p=useBid?((ST.bid&&ST.bid[i])||0):oreMkt(i);return a+o/1e4*p*(1-FEE);},0);
+function optPer(){return TIERS.map(t=>{const drill=rigDrill(t),oreA=oreVal(t,false),oreB=oreVal(t,true),ore=OPT.bid?oreB:oreA,H=Math.max(t.h,OPT.minH);
+  return{t,drill,oreA,oreB,ore,H,net:drill+ore-t.c,gross:drill+ore,ph:(drill+ore-t.c)/H,phk:t.c?(drill+ore-t.c)/H/t.c*1000:0};});}
+// best whole-rig mix for `slots` open slots and `D` DRILL: vertices = one tier alone, or two tiers with both limits tight
+function lpMix(per,slots,D){let best={val:0,mix:[]};
+  const test=mix=>{let v=0,s=0,d=0;for(const m of mix){if(m.n<0||!isFinite(m.n))return;v+=m.n*m.p.ph;s+=m.n;d+=m.n*m.p.t.c;}if(s>slots+1e-9||d>D+1e-9)return;if(v>best.val+1e-9)best={val:v,mix:mix.filter(m=>m.n>0)};};
+  per.forEach(p=>{if(p.ph>0)test([{p,n:Math.min(slots,Math.floor(D/p.t.c))}]);});
+  for(let i=0;i<per.length;i++)for(let j=i+1;j<per.length;j++){const a=per[i],b=per[j];if(a.ph<=0&&b.ph<=0)continue;const nb=(D-slots*a.t.c)/(b.t.c-a.t.c),na=slots-nb;
+    for(const x of[Math.floor(na),Math.ceil(na)])for(const y of[Math.floor(nb),Math.ceil(nb)])test([{p:a,n:x},{p:b,n:y}]);}
+  return best;}
+const mixStr=mix=>mix.map(m=>m.n+"× "+m.p.t.n).join(" + ")||"—";
+const topTier=mix=>mix.length?mix.reduce((a,b)=>b.n>a.n?b:a).p.t.n:null;
+function optPlan(){const per=optPer(),slots=Math.max(0,RIGCAP-ST.active),own=(ST.plots||[]).filter(p=>p.empty).sort((a,b)=>b.level-a.level),cap=OPT.ext?slots:Math.min(slots,own.length);
+  const D=ST.drill,mix=lpMix(per,cap,D);
+  const rigs=[];mix.mix.forEach(m=>{for(let k=0;k<m.n;k++)rigs.push(m.p);});rigs.sort((a,b)=>b.drill-a.drill);
+  // self-plant bonus: your empty plots highest level first (owner+planter = 1.25× ownerBps), others' plots = planter ¼ at L1
+  let bonusPH=0,ownUsed=0,phA=0,phB=0,cost=0;const out=Array(12).fill(0);
+  rigs.forEach((p,k)=>{const bf=k<own.length?1.25*(OWNBONUS[own[k].level]||0)/100:0.25*(OWNBONUS[1]||0)/100;if(k<own.length)ownUsed++;bonusPH+=p.drill*bf/p.H;
+    const c=p.t.c;cost+=c;phA+=(p.drill+p.oreA-c)/p.H;phB+=(p.drill+p.oreB-c)/p.H;for(let s=0;s<12;s++)out[s]+=p.t.tray*p.t.odds[s]/1e4/p.H;});
+  // graduation: smallest DRILL balance at which the dominant tier changes (same slots)
+  let grad=null;{const cur=topTier(mix.mix);let d=Math.max(D,50);for(let k=0;k<90&&cap>0;k++){d*=1.1;const t=topTier(lpMix(per,cap,d).mix);if(t&&t!==cur){grad={D:d,t};break;}}}
+  // fleet target: all 100 slots, capital = balance + DRILL coming back from the rigs running now
+  const back=(ST.rigs||[]).reduce((a,r)=>a+(TIERS[r.tier-1]?rigDrill(TIERS[r.tier-1]):0),0),fleet=lpMix(per,RIGCAP,D+back);
+  return{per,mix,slots,cap,D,rigs,bonusPH,ownUsed,extUsed:rigs.length-ownUsed,phA:phA+bonusPH,phB:phB+bonusPH,cost,out,grad,fleet,back,own};}
+function renderOpt(){const el=$("optVerdict"),tb=$("optTbl");if(!el||!tb)return;const mkt=mktReady();
+  $("optAsk").classList.toggle("on",!OPT.bid);$("optBid").classList.toggle("on",OPT.bid);
+  if(!mkt||!ST.addr){el.innerHTML='<div class="sub">loading market…</div>';tb.innerHTML='';return;}
+  const P=optPlan(),per=P.per,bestSlot=per.reduce((a,b)=>b.ph>a.ph?b:a,per[0]),bestCap=per.reduce((a,b)=>b.phk>a.phk?b:a,per[0]);
+  tb.innerHTML='<thead><tr><th>Rig</th><th class=n title="DRILL minted + ore ('+(OPT.bid?'bid':'ask')+' −5% fee) − cost, per rig">Net/rig</th><th class=n title="net DRILL per hour per slot (slot busy max(rig time, re-plant interval))">/h·slot</th><th class=n title="net DRILL per hour per 1,000 DRILL locked">/h·1k</th><th class=n title="rigs in the plan">Plan</th></tr></thead><tbody>'
+    +per.map(p=>{const nP=(P.mix.mix.find(m=>m.p===p)||{n:0}).n,bs=p===bestSlot,bc=p===bestCap;
+      return `<tr${bs?' style="background:#171008"':''}><td>${p.t.n}${bs?' <span class=gold title="best per slot">◄</span>':''}${bc?' <span class=grn title="best per DRILL">$</span>':''}</td><td class="n ${p.net>=0?'grn':'red'}">${p.net>=0?'+':''}${fmt(p.net)}</td><td class="n ${p.ph>=0?'grn':'red'}">${p.ph>=0?'+':''}${fmt(p.ph)}</td><td class="n ${p.phk>=0?'':'red'}">${fmt(p.phk)}</td><td class=n>${nP?'<b>'+nP+'</b>':'<span class=muted>–</span>'}</td></tr>`;}).join("")+'</tbody>';
+  let v='';
+  if(P.slots<=0)v+='<div><span class="red">Rig cap '+ST.active+'/'+RIGCAP+'</span>'+(ST.ready?' · '+ST.ready+' ready to collect':'')+'</div>';
+  else if(!P.mix.mix.length)v+='<div class="red">'+(P.D<Math.min(...TIERS.map(t=>t.c))?'Not enough DRILL (min 50)':'No rig is DRILL-positive at these prices')+'</div>';
+  else{v+='<div><b>Now:</b> '+mixStr(P.mix.mix)+' <span class="sub">('+fmt(P.cost)+' DRILL)</span></div>';
+    v+='<div style="font-size:20px;font-weight:700;margin:1px 0"><span class="'+(P.phA>=0?'grn':'red')+'">'+(P.phA>=0?'+':'')+fmt(P.phA)+'</span><small class="sub">/h ask</small> · <span class="'+(P.phB>=0?'grn':'red')+'">'+(P.phB>=0?'+':'')+fmt(P.phB)+'</span><small class="sub">/h bid</small></div>';
+    v+='<div class="sub">slots '+P.rigs.length+'/'+P.slots+' · '+(P.ownUsed?lvHist(P.own.slice(0,P.ownUsed).map(p=>p.level))+' yours':'')+(P.extUsed?(P.ownUsed?' + ':'')+P.extUsed+' others’':'')+' · bonus +'+fmt(P.bonusPH,1)+'/h</div>';}
+  if(P.grad)v+='<div class="sub">📈 ≥ '+fmtK(P.grad.D)+' DRILL → <b>'+P.grad.t+'</b></div>';
+  if(P.fleet.mix.length)v+='<div class="sub">🎯 '+RIGCAP+' slots: <b>'+mixStr(P.fleet.mix)+'</b> → <span class="grn">+'+fmt(P.fleet.val)+'/h</span></div>';
+  // sell-through warning only when your planned output is a big share of what the market buys per hour
+  if(ST.stats&&P.rigs.length){const st=STONE.map((s,i)=>{if(DUST(i)||P.out[i]<0.5)return null;const d=ST.stats[i].dem||ST.stats[i].dem24;return{n:s[0],r:d?P.out[i]/d:Infinity};}).filter(x=>x&&x.r>=0.3).sort((a,b)=>b.r-a.r).slice(0,4);
+    if(st.length)v+='<div class="sub">⚠ your output vs buys/h: '+st.map(x=>'<span class="'+(x.r>1?'red':'gold')+'">'+x.n+' '+(isFinite(x.r)?Math.round(x.r*100)+'%':'no buyers')+'</span>').join(' · ')+'</div>';}
+  el.innerHTML=v;}
 // ---- wire ----
 try{const s=localStorage.getItem("mars_rpc");if(s)$("rpc").value=s;}catch(e){}
 $("rpc").addEventListener("change",e=>{try{localStorage.setItem("mars_rpc",e.target.value.trim());}catch(_){}if(WALLET){PROVIDER=newProvider();WALLET=WALLET.connect(PROVIDER);NONCE=null;}});
 $("connectPK").onclick=connectPK;$("forget").onclick=forgetKey;$("loadRo").onclick=loadRo;$("refresh").onclick=()=>loadAll(false,false);
 $("pk").addEventListener("keydown",e=>{if(e.key==="Enter")connectPK();});
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);else if(document.visibilityState==="hidden")histSave(true);});
 $("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
 $("xferBtn").onclick=sendStones;$("xferAllBtn").onclick=sendAllStones;$("xferMax").onclick=()=>{const id=Number($("xferStone").value||0);$("xferQty").value=ST.stones[id]||0;};$("xferStone").onchange=xferHint;$("xferTo").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});$("xferQty").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});
 fillXferPresets();$("xferPreset").onchange=e=>{if(e.target.value)$("xferTo").value=e.target.value;xferHint();};$("xferTo").addEventListener("input",()=>{const s=$("xferPreset");if(s&&s.value&&s.value.toLowerCase()!==($("xferTo").value||"").trim().toLowerCase())s.selectedIndex=0;xferHint();});
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
+$("optAsk").onclick=()=>{OPT.bid=false;renderOpt();};$("optBid").onclick=()=>{OPT.bid=true;renderOpt();};$("optH").onchange=e=>{OPT.minH=parseFloat(e.target.value)||0.5;renderOpt();};$("optExt").onchange=e=>{OPT.ext=!!e.target.checked;renderOpt();};
 renderRig();
 // auto-reconnect a remembered key
 try{const pk=localStorage.getItem("mars_pk");if(pk){$("pk").value=pk;$("remember").checked=true;connectKey(pk,true);}}catch(e){}

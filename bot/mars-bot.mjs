@@ -18,8 +18,8 @@
 //                       below the best bid, so a troll ask can't make it dump.
 //
 // SAFETY: dry-run is ON by default (MARS_DRY=0 to go live). Every write is
-// eth_call-simulated first; a revert is logged and the tx is NOT sent. Paid
-// planting is capped by MARS_MAX_SPEND (default 0 = free credits only).
+// eth_call-simulated first; a revert is logged and the tx is NOT sent. Planting
+// spend can be capped per cycle with MARS_MAX_SPEND (0 = no cap).
 //
 // Configure with env vars (see .env.example). Never hard-code your key.
 // ============================================================================
@@ -74,9 +74,9 @@ const A = {
   poolMgr: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
 };
 const S = {
-  balanceOf:        "0x70a08231", freeRigsOf:      "0x3e338229", allowance:        "0xdd62ed3e",
+  balanceOf:        "0x70a08231", allowance:        "0xdd62ed3e",
   approve:          "0x095ea7b3", balanceOfBatch:  "0x4e1273f4", isApprovedForAll: "0xe985e9c5",
-  setApprovalForAll:"0xa22cb465", deployManyCredits:"0x6dcb2774", siteOf:          "0x018163dc",
+  setApprovalForAll:"0xa22cb465", deployMany:       "0x6dcb2774", siteOf:          "0x018163dc",
   isOpen:           "0x4d6861a6", collect:         "0xeeffeb45", list:             "0x00dd0cbb",
   cancelListing:    "0x40e58ee5",
 };
@@ -154,13 +154,6 @@ async function stoneBalances() {
   const r = await call(A.stones, data(S.balanceOfBatch, ["address[]", "uint256[]"], [Array(12).fill(ME), ids]));
   return AB.decode(["uint256[]"], r)[0].map((x) => Number(x));
 }
-async function freeHaulerCredits() {
-  const r = await call(A.site, data(S.freeRigsOf, ["address"], [ME]));
-  const h = r.replace(/^0x/, ""), w = [];
-  for (let i = 0; i < h.length; i += 64) w.push(h.slice(i, i + 64));
-  const five = (w.length >= 7 && parseInt(w[0], 16) === 32 && parseInt(w[1], 16) === 5 ? w.slice(2, 7) : w.slice(0, 5)).map((x) => parseInt(x || "0", 16));
-  return five[HAULER - 1] || 0;
-}
 async function activeRigCount() {
   const r = await call(A.site, data(S.siteOf, ["address"], [ME]));
   const h = r.replace(/^0x/, ""), W = (i) => h.slice(i * 64, i * 64 + 64);
@@ -230,27 +223,22 @@ async function plantHaulers() {
   want = Math.min(want, empties.length);
   if (want <= 0) { log("plant: no empty plots available"); return; }
 
-  const free = await freeHaulerCredits();
-  let paid = Math.max(0, want - free);
-  if (paid > 0) {
-    // fund paid haulers from the DRILL in your wallet, down to the reserve; MARS_MAX_SPEND is an optional per-cycle cap
-    const bal = await drillBalance();
-    const reserveWei = toWei(cfg.drillReserve);
-    const spendable = bal > reserveWei ? bal - reserveWei : 0n;
-    let affordable = Number(spendable / (BigInt(HAULER_COST) * ONE));
-    if (cfg.maxSpend > 0) affordable = Math.min(affordable, Math.floor(cfg.maxSpend / HAULER_COST));
-    paid = Math.min(paid, affordable);
-    want = free + paid;
-    if (want <= 0) { log(`plant: ${empties.length} empty, ${free} free, DRILL ${fmtWei(bal, 0)} funds 0 haulers (${HAULER_COST} ea${cfg.drillReserve ? `, reserve ${cfg.drillReserve}` : ""}${cfg.maxSpend ? `, cap ${cfg.maxSpend}/cycle` : ""})`); return; }
-  }
+  // fund haulers from the DRILL in your wallet, down to the reserve; MARS_MAX_SPEND is an optional per-cycle cap
+  const bal = await drillBalance();
+  const reserveWei = toWei(cfg.drillReserve);
+  const spendable = bal > reserveWei ? bal - reserveWei : 0n;
+  let affordable = Number(spendable / (BigInt(HAULER_COST) * ONE));
+  if (cfg.maxSpend > 0) affordable = Math.min(affordable, Math.floor(cfg.maxSpend / HAULER_COST));
+  want = Math.min(want, affordable);
+  if (want <= 0) { log(`plant: ${empties.length} empty, DRILL ${fmtWei(bal, 0)} funds 0 haulers (${HAULER_COST} ea${cfg.drillReserve ? `, reserve ${cfg.drillReserve}` : ""}${cfg.maxSpend ? `, cap ${cfg.maxSpend}/cycle` : ""})`); return; }
 
-  const maxWei = BigInt(paid * HAULER_COST) * ONE;
-  if (paid > 0) await ensureAllowance(A.site, maxWei, "site (DRILL)");
+  const maxWei = BigInt(want * HAULER_COST) * ONE;
+  await ensureAllowance(A.site, maxWei, "site (DRILL)");
   // contract requires ascending parcel order; pick best (highest-level) plots then sort ascending
   const parcels = empties.slice(0, want).map((p) => p.id).sort((a, b) => a - b);
   const tiers = parcels.map(() => HAULER);
-  log(`plant: ${want}× Hauler (${free ? Math.min(free, want) + " free" : ""}${paid ? (free ? " + " : "") + paid + " paid=" + paid * HAULER_COST + " DRILL" : ""}) on ${lvHist(empties.slice(0, want).map((p) => p.level))} — rigs ${active}->${active + want}/100`);
-  await tx(A.site, data(S.deployManyCredits, ["uint256[]", "uint256[]", "uint256"], [parcels, tiers, maxWei]), `deploy ${want} haulers`);
+  log(`plant: ${want}× Hauler (${want * HAULER_COST} DRILL) on ${lvHist(empties.slice(0, want).map((p) => p.level))} — rigs ${active}->${active + want}/100`);
+  await tx(A.site, data(S.deployMany, ["uint256[]", "uint256[]", "uint256"], [parcels, tiers, maxWei]), `deploy ${want} haulers`);
 }
 const lvHist = (ls) => { const m = {}; ls.forEach((l) => (m[l] = (m[l] || 0) + 1)); return Object.keys(m).map(Number).sort((a, b) => b - a).map((k) => "L" + k + (m[k] > 1 ? "×" + m[k] : "")).join(" · "); };
 
