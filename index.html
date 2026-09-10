@@ -547,7 +547,7 @@ async function levelsRefresh(force){if(lvBusy||(!force&&ST.lvAt&&Date.now()-ST.l
   }catch(e){log("levels: "+e.message);}finally{lvBusy=false;}}
 // bars: planet count per level, linear scale, count on top of each bar
 function renderLevels(){const el=$("lvBody");if(!el)return;const cnt=ST.lvDist;if(!cnt){el.innerHTML='<div class="sub">loading…</div>';return;}
-  const mx=Math.max(1,...cnt.slice(1)),H=100,top=14,bot=12,W=400,bw=W/MAXLVL;let s='';
+  const mx=Math.max(1,...cnt.slice(1)),H=46,top=11,bot=10,W=400,bw=W/MAXLVL;let s='';
   for(let l=1;l<=MAXLVL;l++){const c=cnt[l],h=c?Math.max(1.5,c/mx*H):0,x=(l-1)*bw+2,y=top+H-h,cx=x+(bw-4)/2;
     s+=`<rect x="${x}" y="${y.toFixed(1)}" width="${bw-4}" height="${h.toFixed(1)}" rx="1.5" fill="var(--drill)" opacity=".7"/>`;
     s+=`<text x="${cx}" y="${(y-2.5).toFixed(1)}" font-size="7.5" text-anchor="middle" fill="var(--ink)">${c?fmtK(c):''}</text>`;
