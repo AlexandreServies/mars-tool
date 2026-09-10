@@ -339,14 +339,16 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n title='DRILL minted on collect'>DRILL</th><th class=n title='ore resale value'>ore</th><th class=n>×</th><th class=n>/h</th></tr></thead><tbody>"+rows.map(({t,drill,ore,r,ph})=>`<tr${t===best.t?' style="background:#171008"':''}><td>${t.n}${t===best.t?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(drill)}</td><td class="n ${ore?'':'muted'}">${mkt?fmt(ore):'…'}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`).join("")+"</tbody>";
   if($("rigNote"))$("rigNote").innerHTML='Collect mints <b>DRILL ≈ 96% of cost</b> + the ore + a small owner/planter bonus. <span class="grn">Free rigs = pure profit</span> (~'+fmt(rigDrill(TIERS[2]))+' DRILL + ore per free Driller). Paid rigs ≈ break-even — the <b>ore is your margin</b>'+(mkt?', best on <b>'+best.t.n+'</b>':'')+'.';}
 function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
-  const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
+  const myCnt=Array(12).fill(0),myBun=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;const multi=(L.lots||[]).length>1;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(multi)myBun[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, bundled-count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
   $("stoneTbl").innerHTML="<thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
     let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="Ladder your ${fmt(n)} wallet ${s[0]} up from ${fmt(a,dec)} in ${nl} listing${nl>1?'s':''}">List${nl>1?' ·'+nl:''}</button>`;
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false,drift=0,why="";
       if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
         const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;drift=Math.max(fD,tD);showAdj=fD>LADDER_TOL||tD>LADDER_TOL;why=(tD>LADDER_TOL&&fD<=LADDER_TOL)?"not laddered":"front drifted "+(fD*100).toFixed(0)+"%";}
-      if(showAdj){const tot=n+lst,nAdj=myCnt[i]+Math.ceil(tot/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-ladder your ${fmt(tot)} ${s[0]} to the market (${why}) — ${nAdj} tx">Adj ·${nAdj}</button>`;}}else if(n>0||lst>0)act='<span class="muted" title="no liquid ask to undercut">—</span>';
+      if(showAdj){const tot=n+lst,nAdj=myCnt[i]+Math.ceil(tot/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-ladder your ${fmt(tot)} ${s[0]} to the market (${why}) — ${nAdj} tx">Adj ·${nAdj}</button>`;}}
+    if(lst>0){const bt=myBun[i]?`; ${myBun[i]} share a listing with other stones — those return to your wallet too`:'';act+=(act?' ':'')+`<button class="mini sec" onclick="delistStone(${i})" title="Cancel your ${myCnt[i]} open ${s[0]} listing${myCnt[i]>1?'s':''} — ${fmt(lst)} back to your wallet${bt}">Delist${myCnt[i]>1?' ·'+myCnt[i]:''}</button>`;}
+    if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
     return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";
   renderBatchBtn();renderXfer();}
@@ -432,6 +434,20 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     const kept=keep.size;
     set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" ("+fr.toFixed(d)+"→"+top.toFixed(d)+")"+(kept?" · kept "+kept+" untouched":"")+" ✓");
     setTimeout(()=>loadAll(true),4500);
+  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
+// ---- delist: cancel every open listing of one stone (escrowed ore returns to my wallet) ----
+async function delistStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
+  const mine=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===i));
+  if(!mine.length){set("s-err","No open "+STONE[i][0]+" listings to cancel.");return;}
+  const bundled=mine.filter(L=>(L.lots||[]).length>1).length;
+  try{
+    let done=0;
+    for(const L of mine){const dta=S.cancelListing+w(L.id);
+      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+mine.length+" — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
+      set("s-wait","Delisting "+STONE[i][0]+" — cancel "+(done+1)+"/"+mine.length+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
+    set("s-ok","Delisted "+STONE[i][0]+" — cancelled "+mine.length+" listing"+(mine.length>1?"s":"")+(bundled?" ("+bundled+" also held other stones, now back in your wallet)":"")+" ✓");
+    setTimeout(()=>loadAll(true),4000);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- transfer stones to any address (ERC-1155 safeTransferFrom; from == you, so no approval needed) ----
 const XFER_PRESETS=[{label:"KP",addr:"0x5320bedc1980f5b56d6bdea71a450a287493142f"}]; // saved recipients — dropdown shows the label only; add more here
