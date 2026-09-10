@@ -384,27 +384,37 @@ async function listAllStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.in
     set("s-ok","Laddered "+fmt(qty)+" × "+STONE[i][0]+" over "+lots.length+" rungs ("+fr.toFixed(d)+"→"+top.toFixed(d)+") ✓");
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// ---- re-ladder a whole single-stone position to the current market (cancel + re-list as a fresh ladder) ----
+// ---- re-ladder a single-stone position to the current market, keeping any rung that's already correct ----
 async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
   const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No liquid ask to undercut on "+STONE[i][0]+".");return;}
   const front=aw-1n;
-  const mineI=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===i));
-  const total=(ST.stones[i]||0)+((ST.myListed&&ST.myListed[i])||0);
-  if(!total){set("s-err","No "+STONE[i][0]+" to ladder.");return;}
-  // re-anchor the whole ladder to the current market: cancel my stone-i listings, re-list as a fresh ladder from front
-  const lots=ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18,nTx=mineI.length+lots.length;
+  // only touch listings that are PURELY this stone — those are the ladder rungs. A bundled listing (stone i
+  // sharing a listing with other stones) is left alone: cancelling it would drop the other stones too.
+  const pureI=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).length===1&&L.lots[0].stone===i);
+  const bundled=(ST.book||[]).some(L=>L.mine&&(L.lots||[]).length>1&&(L.lots||[]).some(l=>l.stone===i));
+  const listedPure=pureI.reduce((s,L)=>s+L.lots[0].amount,0);
+  const total=(ST.stones[i]||0)+listedPure;   // ladder held + my pure-i listings; bundles stay as they are
+  if(!total){set("s-err","No free "+STONE[i][0]+" to ladder"+(bundled?" (only bundled listings).":"."));return;}
+  const lots=ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
+  // diff: keep any pure-i listing whose (amount,price) already equals a desired rung; cancel the rest; list only uncovered rungs.
+  const want=lots.map(l=>({amount:l.amount,price:l.price,done:false})),keep=new Set();
+  for(const L of pureI){const lot=L.lots[0],m=want.find(w=>!w.done&&w.amount===lot.amount&&w.price===lot.priceWei);if(m){m.done=true;keep.add(L.id);}}
+  const toCancel=pureI.filter(L=>!keep.has(L.id)),toList=want.filter(w=>!w.done);
+  if(!toCancel.length&&!toList.length){set("s-ok",STONE[i][0]+" ladder already at the market — nothing to do ✓");return;}
+  const nTx=toCancel.length+toList.length;
   try{
     const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
     if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market…");const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
     let done=0;
-    for(const L of mineI){const dta=S.cancelListing+w(L.id);
+    for(const L of toCancel){const dta=S.cancelListing+w(L.id);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
       set("s-wait","Re-laddering "+STONE[i][0]+" — cancel "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
-    for(const lot of lots){const dta=encList([{id:i,amount:lot.amount,price:lot.price}]);
+    for(const wg of toList){const dta=encList([{id:i,amount:wg.amount,price:wg.price}]);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Re-laddering "+STONE[i][0]+" @ "+(Number(lot.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
-    set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" over "+lots.length+" rungs ("+fr.toFixed(d)+"→"+top.toFixed(d)+") ✓");
+      set("s-wait","Re-laddering "+STONE[i][0]+" @ "+(Number(wg.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
+    const kept=keep.size;
+    set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" ("+fr.toFixed(d)+"→"+top.toFixed(d)+")"+(kept?" · kept "+kept+" untouched":"")+" ✓");
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
