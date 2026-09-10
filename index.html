@@ -179,7 +179,7 @@ const OWNBONUS=[0,1.00,1.10,1.20,1.30,1.40,1.50,1.60,1.75,1.90,2.05,2.20,2.35,2.
 const WEIGHTAT=[0,1,2,3,5,7,9,12,16,20,26,33,40,49,59,69,81,94,108,124,195];
 const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a60"],["Copper",4,"#c8783c"],["Nickel",6,"#9aa3a8"],["Silver",12,"#d8dde2"],["Gold",30,"#f0c040"],["Platinum",60,"#e6eaf0"],["Iridium",120,"#b8a0ff"],["Mars Glass",250,"#5ce0a0"],["Diamond",800,"#9fe8ff"],["Core Blue",5000,"#3b7dff"]];
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
-const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*STONE[i][1],0); // catalog reference value
+const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(i?STONE[i][1]:0),0); // catalog reference value (Sand Rock counted as 0)
 // per-stone DRILL payout schedule (millionths of rig cost per occurrence), by tier — the on-chain "base find"
 const JZ=[null,[5316,10632,21266,42532,63798,127594,0,0,0,0,0,0],[2490,4981,9962,19923,29885,59771,149426,0,0,0,0,0],[1166,2330,4660,9322,13982,27967,69914,139831,279662,0,0,0],[0,1038,2078,4156,6234,12468,31168,62338,124676,259740,0,0],[0,0,999,2001,3000,6000,15000,30000,60000,125001,399999,2499999]];
 // base find = DRILL minted to you on collect (verified on-chain ≈ 0.96× cost every tier)
@@ -187,7 +187,7 @@ const rigDrill=t=>t.tray*t.odds.reduce((a,o,i)=>a+(o/1e4)*(JZ[t.t][i]/1e6),0)*t.
 // resale value per stone (DRILL) = lowest live ASK (the going price buyers market-buy at); best bid only
 // as a fallback when nothing is listed. No cap — a listing is a listing.
 const oreMkt=i=>{const a=(ST.ask&&ST.ask[i])||0;return a||((ST.bid&&ST.bid[i])||0);};
-const rigEVmkt=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*oreMkt(i),0);
+const rigEVmkt=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(i?oreMkt(i):0),0); // Sand Rock counted as 0
 const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0)));
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
