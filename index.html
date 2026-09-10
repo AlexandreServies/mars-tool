@@ -514,13 +514,16 @@ function pxUpdate(h,pxf,now){const nowB=Math.floor(now/1.8e6),b0=nowB-PRICE_NB+1
 // ---- price history card: one line per stone, last 48h, scaled per row; current price on the right, 48h change under the name ----
 function renderPrices(){const body=$("priceBody");if(!body)return;const px=ST.hist&&ST.hist.px;
   if(!px){body.innerHTML='<div class="sub">'+(ST.histProg||'loading…')+'</div>';return;}
-  body.innerHTML=STONE.map((s,i)=>{const ser=px.v[i];let last=null,first=null,mn=Infinity,mx=-Infinity;const pts=[];
-    ser.forEach((p,k)=>{if(p!=null){last=p;if(first===null)first=p;}if(last!=null){pts.push([k,last]);if(last<mn)mn=last;if(last>mx)mx=last;}});
+  body.innerHTML=STONE.map((s,i)=>{const ser=px.v[i];let last=null,mn=Infinity,mx=-Infinity;const pts=[];
+    ser.forEach((p,k)=>{if(p!=null)last=p;if(last!=null){pts.push([k,last]);if(last<mn)mn=last;if(last>mx)mx=last;}});
     const dec=v=>v>=1000?fmtK(v):v>=100?fmt(v,0):v>=1?fmt(v,2):v>=0.01?fmt(v,4):fmt(v,5);
     if(pts.length<2)return `<div class="prow pempty"><span class="pnm"><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><span class="pbar"></span><span class="ptot muted">${last==null?'–':dec(last)}</span></div>`;
-    const span=(mx-mn)||mx*0.02||1,path=pts.map(([k,p],j)=>(j?'L':'M')+(k/(PRICE_NB-1)*100).toFixed(2)+' '+(17-(p-mn)/span*15).toFixed(2)).join(' ');
-    const chg=first?last/first-1:0,col=chg>0.02?'var(--green)':chg<-0.02?'var(--red)':'var(--mut)';
-    return `<div class="prow" title="${s[0]}: now ${dec(last)} · 48h ago ${dec(first)} (${chg>=0?'+':''}${Math.round(chg*100)}%) · low ${dec(mn)} · high ${dec(mx)}"><span class="pnm"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s" style="color:${col}">${chg>=0?'▲':'▼'} ${Math.abs(Math.round(chg*100))}%</div></div></span><span class="pbar"><svg viewBox="0 0 100 18" preserveAspectRatio="none"><path d="${path}" fill="none" stroke="${s[2]}" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg></span><span class="ptot">${dec(last)}</span></div>`;}).join("");}
+    // row scale = 2nd–98th percentile of the line, so one spike can't flatten the rest (spikes are clipped at the top)
+    const sv=pts.map(p=>p[1]).sort((a,b)=>a-b),lo=sv[Math.floor((sv.length-1)*0.02)],hi=sv[Math.ceil((sv.length-1)*0.98)],span=(hi-lo)||hi*0.02||1;
+    const path=pts.map(([k,p],j)=>(j?'L':'M')+(k/(PRICE_NB-1)*100).toFixed(2)+' '+Math.max(1,Math.min(17,17-(p-lo)/span*15)).toFixed(2)).join(' ');
+    // change vs 24h ago (the price carried at that bucket), or vs the earliest price if the series is shorter
+    const ref=(pts.find(p=>p[0]>=PRICE_NB/2)||pts[0])[1],chg=ref?last/ref-1:0,col=chg>0.02?'var(--green)':chg<-0.02?'var(--red)':'var(--mut)';
+    return `<div class="prow" title="${s[0]}: now ${dec(last)} · 24h ago ${dec(ref)} (${chg>=0?'+':''}${Math.round(chg*100)}%) · 48h low ${dec(mn)} · high ${dec(mx)}"><span class="pnm"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s" style="color:${col}">24h ${chg>=0?'▲':'▼'} ${Math.abs(Math.round(chg*100))}%</div></div></span><span class="pbar"><svg viewBox="0 0 100 18" preserveAspectRatio="none"><path d="${path}" fill="none" stroke="${s[2]}" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg></span><span class="ptot">${dec(last)}</span></div>`;}).join("");}
 // ---- per-stone sell signal (tool 3): upcoming bursts × sellers' lag vs what the book absorbs, else the book's own trend ----
 function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st.dem||st.dem24,an=(ST.askNear&&ST.askNear[i])||0,au=(ST.askUnits&&ST.askUnits[i])||0;
   const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
