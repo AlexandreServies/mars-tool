@@ -53,7 +53,7 @@ const cfg = {
 const CHAIN = 4663;
 const HAULER = 2, HAULER_COST = 125;                                 // tier index + DRILL cost
 const MAX_LOT = 99, LOTS_PER_LISTING = 5;                            // on-chain caps: <=99 units/lot, <=5 distinct stones/listing
-const LADDER_STEP = 0.04, LADDER_CAP = 1.0, LADDER_TOL = 0.08;       // ladder: +4%/rung geometric, capped +100%; re-anchor when front/top drifts >8%
+const LADDER_STEP = 0.04, LADDER_CAP = 0.30, LADDER_TOL = 0.08;      // ladder: +4%/rung geometric, total spread capped at +30%; re-anchor when front/top drifts >8%
 // spread a stone's forced 99-lots up a geometric price curve (free — the lot cap already forces multiple listings)
 function ladLots(stone, qty, frontWei) {
   const L = Math.ceil(qty / MAX_LOT), out = [], topMult = L <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, L - 1), 1 + LADDER_CAP);

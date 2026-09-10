@@ -178,6 +178,10 @@ const OWNBONUS=[0,1.00,1.10,1.20,1.30,1.40,1.50,1.60,1.75,1.90,2.05,2.20,2.35,2.
 // plot weight (share of ETH swap-fee deposits), by level (on-chain plotWeightAt)
 const WEIGHTAT=[0,1,2,3,5,7,9,12,16,20,26,33,40,49,59,69,81,94,108,124,195];
 const STONE=[["Sand Rock",0.5,"#8a7d6b"],["Rust",1,"#a8532e"],["Basalt",2,"#5a5a60"],["Copper",4,"#c8783c"],["Nickel",6,"#9aa3a8"],["Silver",12,"#d8dde2"],["Gold",30,"#f0c040"],["Platinum",60,"#e6eaf0"],["Iridium",120,"#b8a0ff"],["Mars Glass",250,"#5ce0a0"],["Diamond",800,"#9fe8ff"],["Core Blue",5000,"#3b7dff"]];
+// Slush: a rig-collect byproduct (no market yet, "refining coming soon"). It isn't an ERC-1155 token — it's
+// emitted as Slush(address indexed owner, uint256 indexed id, uint256 amount) on the site contract, so the
+// balance is the sum of your Slush events' amounts (scanned like land ownership, filtered by your address).
+const SLUSH={name:"Slush",color:"#bcdff0"},SLUSH_TOPIC="0xb84b22c2894f3711d7a02a464b95da967b495da4111bfe050ebee51f52f163e1";
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
 const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(i?STONE[i][1]:0),0); // catalog reference value (Sand Rock counted as 0)
 // per-stone DRILL payout schedule (millionths of rig cost per occurrence), by tier — the on-chain "base find"
@@ -192,7 +196,7 @@ const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0))
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
 let WALLET=null,PROVIDER=null,NONCE=null,COST={}; // WALLET=ethers signer, NONCE tracked locally for fast sequential txs
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -285,10 +289,25 @@ function encBuy(listingId,ids,amounts){const a=w(ids.length)+ids.map(w).join("")
 // buyBatch(uint256[] listingIds, uint8[][] ids, uint8[][] amounts) — all listings in one tx (selector verified 0x9fd46449)
 function encBuyBatch(calls){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint8[][]","uint8[][]"],[calls.map(c=>c.listingId),calls.map(c=>c.ids),calls.map(c=>c.amounts)]);return S.buyBatch+enc.slice(2);}
 
+// slush balance = sum of your Slush(owner,id,amount) events on the site contract (there is no balanceOf).
+// scanned in parallel 9k-block chunks (RPC caps eth_getLogs at 10k), filtered to your address, retry on failure.
+async function slushBalance(addr){
+  const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,me="0x"+wa(addr);
+  const one=async(f,t,tries)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[SLUSH_TOPIC,me]}]);}catch(e){if(tries>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tries-1);}return [];}};
+  const R=[];for(let b=DEPLOY_BLOCK;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
+  let tot=0n;const PAR=6;
+  for(let i=0;i<R.length;i+=PAR){const res=await Promise.all(R.slice(i,i+PAR).map(([f,t])=>one(f,t,3)));
+    for(const r of res)if(Array.isArray(r))for(const lg of r){const d=lg.data;if(d&&d!=="0x")tot+=BigInt(d.length>66?d.slice(0,66):d);}}
+  return Number(tot);
+}
+// lazy refresh: it's a slow scan, so show "…" (or keep the last value) and fill when done; skip on light refresh once known
+function slushRefresh(light){if(ST.slushAddr!==ST.addr){ST.slush=null;ST.slushAddr=ST.addr;}else if(light&&ST.slush!=null)return;
+  const who=ST.addr;slushBalance(who).then(v=>{if(who===ST.addr){ST.slush=v;renderStones();}}).catch(()=>{});}
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
+  slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
@@ -350,7 +369,7 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
     if(lst>0)act+=(act?' ':'')+`<button class="mini sec" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
     if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
-    return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";
+    return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+`<tr style="opacity:.85"><td class=n></td><td><span class=swatch style="background:${SLUSH.color}"></span>${SLUSH.name}</td><td class="n ${ST.slush?'':'muted'}">${ST.slush==null?'…':fmt(ST.slush)}</td><td class="n muted" colspan=3 style="text-align:center;font-size:11px">collected with rigs · no market yet</td><td class=n><span class="muted" title="refining coming soon" style="font-size:11px">soon</span></td></tr>`+"</tbody>";
   renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
 function toggleSel(i){if(!ST.listSel)ST.listSel=new Set();if(ST.listSel.has(i))ST.listSel.delete(i);else ST.listSel.add(i);renderBatchBtn();}
@@ -376,7 +395,7 @@ async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- auto-ladder: spread a stone's forced 99-lots up a geometric price curve (free — same tx count as one wall) ----
-const LADDER_STEP=0.04,LADDER_CAP=1.0,LADDER_TOL=0.08,KEEP_TOL=0.02; // +4%/rung, capped +100%; re-ladder at >8% drift; on re-ladder keep any rung already within 2% of its target
+const LADDER_STEP=0.04,LADDER_CAP=0.30,LADDER_TOL=0.08,KEEP_TOL=0.02; // +4%/rung, total spread capped at +30%; re-ladder at >8% drift; on re-ladder keep any rung already within 2% of its target
 function ladMult(L,k){if(L<=1)return 1;const t=Math.min(Math.pow(1+LADDER_STEP,L-1),1+LADDER_CAP);return Math.pow(t,k/(L-1));}
 function ladLots(stone,qty,frontWei){const L=Math.ceil(qty/99),out=[];let rem=qty,k=0;while(rem>0){const a=Math.min(99,rem);rem-=a;out.push({stone,amount:a,price:frontWei*BigInt(Math.round(ladMult(L,k)*1e6))/1000000n});k++;}return out;}
 // pack lots of possibly-different stones into listings of <=5 distinct stones (same stone never repeats within one listing)
