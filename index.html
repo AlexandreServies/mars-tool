@@ -189,6 +189,12 @@
     <div id="prodBody"></div>
   </div>
 
+  <div class="card" id="priceCard" hidden>
+    <h2>Price history <span class="r">last 48h · 30m</span></h2>
+    <div class="paxis"><span class="pnm"></span><span class="pbar"><span>−48h</span><span>−36h</span><span>−24h</span><span>−12h</span><span>now</span></span><span class="ptot">price</span></div>
+    <div id="priceBody"></div>
+  </div>
+
   <div class="card" id="waveCard" hidden>
     <h2>Sell timing <span class="r">tap a row · 🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2>
     <div class="tscroll" id="waveBody"></div>
@@ -266,7 +272,8 @@ const DEPLOY_TOPIC="0x321431a3f8c3ed9d49a8ea13b0fe9e35db349ce681d40e3dbd9770ba74
 const DUR2TIER={1800:0,3600:1,7200:2,14400:3,28800:4};
 const PROD_H=8,PROD_NB=96; // production timeline: 8h horizon, 5-min buckets
 // history cache (fills + rig ripenings) kept 30h, persisted in localStorage; wave stats on 30-min buckets, 24h back / 8h ahead
-const HIST_KEEP_H=26,HIST_LS="mars_hist_v2",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
+const HIST_KEEP_H=26,HIST_LS="mars_hist_v3",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
+const PRICE_H=48,PRICE_NB=96;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
 const DUST=i=>i<2;
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
@@ -418,8 +425,8 @@ function slushRefresh(light){if(ST.slushAddr!==ST.addr){ST.slush=null;ST.slushAd
 // only the blocks since the last scan (normally a single call). Chunks retry with backoff and a failed chunk stops the
 // scan at the last contiguous good block, so the cache never has holes — the next refresh simply continues from there. ----
 const HIST_TOPICS=[DEPLOY_TOPIC,MARKET_SALE_TOPIC,OFFER_FILL_TOPIC,LISTED_TOPIC,CANCEL_TOPIC];
-function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorage.getItem(HIST_LS);if(s){h=JSON.parse(s);if(!h||h.v!==2||!Array.isArray(h.dep)||!Array.isArray(h.sal)||typeof h.head!=="number")h=null;}}catch(e){h=null;}
-  ST.hist=h||{v:2,head:null,headTs:0,spb:SPB_DEFAULT,dep:[],sal:[]};return ST.hist;}
+function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorage.getItem(HIST_LS);if(s){h=JSON.parse(s);if(!h||h.v!==3||!Array.isArray(h.dep)||!Array.isArray(h.sal)||typeof h.head!=="number")h=null;}}catch(e){h=null;}
+  ST.hist=h||{v:3,head:null,headTs:0,spb:SPB_DEFAULT,dep:[],sal:[],px:null};return ST.hist;}
 let histSaved=0;
 function histSave(force){const h=ST.hist;if(!h||h.head==null||(!force&&Date.now()-histSaved<60000))return;histSaved=Date.now();try{localStorage.setItem(HIST_LS,JSON.stringify(h));}catch(e){}}
 const blkTime=b=>{const h=ST.hist;return (h.headTs-(h.head-b)*h.spb)*1000;};   // block → wall-clock ms via the measured seconds/block
@@ -443,7 +450,7 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
   try{const h=histLoad();
     const hb=await rpc("eth_getBlockByNumber",["latest",false]);const head=parseInt(hb.number,16),headTs=parseInt(hb.timestamp,16);
     if(h.head==null){   // first load on this device: measure s/block over the window, then scan it all
-      const from=Math.max(DEPLOY_BLOCK,head-Math.round((HIST_KEEP_H+8)*3600/SPB_DEFAULT));
+      const from=Math.max(DEPLOY_BLOCK,head-Math.round(Math.max(HIST_KEEP_H+8,PRICE_H+2)*3600/SPB_DEFAULT));   // enough for 48h of prices
       try{const ob=await rpc("eth_getBlockByNumber",["0x"+from.toString(16),false]);const s=(headTs-parseInt(ob.timestamp,16))/Math.max(1,head-from);if(s>0.01&&s<10)h.spb=s;}catch(e){}
       h.head=from-1;h.headTs=headTs-(head-from+1)*h.spb;h.dep=[];h.sal=[];}
     if(head>h.head){const CH=9000,R=[];for(let b=h.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
@@ -453,25 +460,27 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
         for(let k=0;k<part.length;k++){if(!Array.isArray(res[k])){stop=true;break;}histIngest(res[k]);last=part[k][1];}}
       h.head=last;h.headTs=headTs-(head-last)*h.spb;if(stop)log("history scan paused at block "+last+" (RPC busy) — continues next refresh");}
     histProgress(head>h.head?"scanning history…":"");
-    const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 30h of ripenings (past+future) and market rows
+    histStats();   // before pruning, so a first-load 50h scan fills the whole 48h price series
+    const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 26h of ripenings (past+future) and market rows
     h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
     ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1]}));ST.depHead=h.head;
-    histSave(false);histStats();renderProd();renderRigs();renderStones();renderWaves();renderOpt();
+    histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderWaves();renderOpt();
   }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
 // ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
 const med=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;};
 function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.now(),NB=PAST_NB+FUT_NB,bw=WB*3.6e6,bk=t=>Math.floor((t-now)/bw)+PAST_NB;
   const Z=()=>Array(12).fill(0),G=n=>Array.from({length:12},()=>Array(n).fill(0));
   const sup=G(NB),vol=G(PAST_NB),lvol=G(PAST_NB),supT=G(5),fills=Array.from({length:12},()=>Array.from({length:PAST_NB},()=>[]));
-  const u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),l2=Z(),c2=Z(),l24=Z(),r24=Z(),a2=Z();
+  const u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),l2=Z(),c2=Z(),l24=Z(),r24=Z(),a2=Z(),pxf=Array.from({length:12},()=>({}));
   for(const x of h.dep){const b=bk(x[0]*1000);if(b<0||b>=NB)continue;const t=TIERS[x[1]];for(let s=0;s<12;s++){const o=t.odds[s];if(o){const u=t.tray*o/1e4;sup[s][b]+=u;if(b<PAST_NB){r24[s]+=u;supT[s][x[1]]+=u;}}}}
   const t1=now-3.6e6,t2=now-7.2e6,t24=now-24*3.6e6;
   for(const x of h.sal){const t=blkTime(x[0]),s=x[1],k=x[4],b=bk(t);
     if(k===2){if(t>t2)l2[s]+=x[2];if(t>t24)l24[s]+=x[2];if(b>=0&&b<PAST_NB)lvol[s][b]+=x[2];continue;}
     if(k===3){if(t>t2)c2[s]+=x[2];continue;}
     if(t>t1){u1[s]+=x[2];v1[s]+=x[3];c1[s]++;}else if(t>t2){pv[s]+=x[3];pu[s]+=x[2];}if(t>t24)u24[s]+=x[2];if(t>t2&&k!==4)a2[s]+=x[2];
+    if(k===1||k===4){const ab=Math.floor(t/1.8e6);(pxf[s][ab]||(pxf[s][ab]=[])).push(x[3]/x[2]);}
     if(b<0||b>=PAST_NB)continue;vol[s][b]+=x[2];if(k===1||k===4)fills[s][b].push(x[3]/x[2]);}
-  ST.act={u:u1,v:v1,c:c1,pv,pu};   // Stones table "1h $ / u·n" + trend arrow (asks bought + bids hit)
+  ST.act={u:u1,v:v1,c:c1,pv,pu};pxUpdate(h,pxf,now);   // Stones table "1h $ / u·n" + trend arrow (asks bought + bids hit)
   ST.stats=STONE.map((_,s)=>{
     const dem=(u1[s]+pu[s])/2,dem24=u24[s]/24,lst=l2[s]/2,cnl=c2[s]/2,net=lst-cnl-a2[s]/2;   // per hour over the last 2h: bought (asks+bids) · listed · cancelled · net growth of the ask side (listed − cancelled − asks bought)
     const f=r24[s]>0?Math.min(1.5,l24[s]/r24[s]):0.5;   // share of ripened ore that actually gets listed (24h)
@@ -493,6 +502,25 @@ function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.n
     const rw=[],rc=[];for(const b of waves){const r=ret(b);if(!isNaN(r))rw.push(r);}for(let b=2;b<=PAST_NB-5;b++){if(waves.some(w=>Math.abs(w-b)<3))continue;const r=ret(b);if(!isNaN(r))rc.push(r);}
     const dPct=rw.length&&rc.length?Math.exp(med(rw)-med(rc))-1:NaN;
     return{dem,dem24,lst,cnl,net,f,base,S2,S8,lag,lagR,nw,due,dPct,n:rw.length,px:lastp};});}
+// price series: 96 absolute 30-min buckets ending now, median unit price of fills (asks bought + bids hit). Buckets inside
+// the raw 26h window are recomputed from the rows; older buckets keep their stored value, so the series persists past the
+// raw window and grows with every refresh.
+function pxUpdate(h,pxf,now){const nowB=Math.floor(now/1.8e6),b0=nowB-PRICE_NB+1,covered=Math.floor((now-(HIST_KEEP_H-0.5)*3.6e6)/1.8e6);
+  const old=h.px&&Array.isArray(h.px.v)&&typeof h.px.b0==="number"?h.px:null;
+  const v=Array.from({length:12},(_,s)=>Array.from({length:PRICE_NB},(_,k)=>{const ab=b0+k;
+    if(!old||ab>=covered){const f=pxf[s][ab];return f&&f.length?+med(f).toPrecision(6):null;}
+    const oi=ab-old.b0;return oi>=0&&oi<old.v[s].length?old.v[s][oi]:null;}));
+  h.px={b0,v};}
+// ---- price history card: one line per stone, last 48h, scaled per row; current price on the right, 48h change under the name ----
+function renderPrices(){const body=$("priceBody");if(!body)return;const px=ST.hist&&ST.hist.px;
+  if(!px){body.innerHTML='<div class="sub">'+(ST.histProg||'loading…')+'</div>';return;}
+  body.innerHTML=STONE.map((s,i)=>{const ser=px.v[i];let last=null,first=null,mn=Infinity,mx=-Infinity;const pts=[];
+    ser.forEach((p,k)=>{if(p!=null){last=p;if(first===null)first=p;}if(last!=null){pts.push([k,last]);if(last<mn)mn=last;if(last>mx)mx=last;}});
+    const dec=v=>v>=1000?fmtK(v):v>=100?fmt(v,0):v>=1?fmt(v,2):v>=0.01?fmt(v,4):fmt(v,5);
+    if(pts.length<2)return `<div class="prow pempty"><span class="pnm"><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><span class="pbar"></span><span class="ptot muted">${last==null?'–':dec(last)}</span></div>`;
+    const span=(mx-mn)||mx*0.02||1,path=pts.map(([k,p],j)=>(j?'L':'M')+(k/(PRICE_NB-1)*100).toFixed(2)+' '+(17-(p-mn)/span*15).toFixed(2)).join(' ');
+    const chg=first?last/first-1:0,col=chg>0.02?'var(--green)':chg<-0.02?'var(--red)':'var(--mut)';
+    return `<div class="prow" title="${s[0]}: now ${dec(last)} · 48h ago ${dec(first)} (${chg>=0?'+':''}${Math.round(chg*100)}%) · low ${dec(mn)} · high ${dec(mx)}"><span class="pnm"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s" style="color:${col}">${chg>=0?'▲':'▼'} ${Math.abs(Math.round(chg*100))}%</div></div></span><span class="pbar"><svg viewBox="0 0 100 18" preserveAspectRatio="none"><path d="${path}" fill="none" stroke="${s[2]}" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg></span><span class="ptot">${dec(last)}</span></div>`;}).join("");}
 // ---- per-stone sell signal (tool 3): upcoming bursts × sellers' lag vs what the book absorbs, else the book's own trend ----
 function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st.dem||st.dem24,an=(ST.askNear&&ST.askNear[i])||0,au=(ST.askUnits&&ST.askUnits[i])||0;
   const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
@@ -567,7 +595,7 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=false;renderRig();renderProd();renderWaves();renderRigs();renderLevels();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=$("priceCard").hidden=false;renderRig();renderProd();renderPrices();renderWaves();renderRigs();renderLevels();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
