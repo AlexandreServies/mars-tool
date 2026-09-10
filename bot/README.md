@@ -41,23 +41,34 @@ thin liquidity can't drag the price down:
 2. of what's left, **take the price only once cumulative depth reaches
    `MARS_DEPTH` units** (default 10).
 
-It lists **1 wei under** that price, keeping up to `MARS_MAX_LOTS` lots of depth
-per stone. (The contract caps a single lot at 99 units and forbids the same
-stone id twice in one listing, so larger depth is spread across separate
-listings; the bot bin-packs so a rebalance is at most `MARS_MAX_LOTS` txs total,
-not one per stone.) As that depth sells it's replenished from your wallet — so
-inventory drains steadily instead of dumping thousands of units at once. (If a
-stone's *only* asks are below `MARS_MIN_LOT`, it's treated as having no real ask
-and is left unlisted — set `MARS_MIN_LOT=1` to price off qty-1 asks too.) Guards:
+The cheapest ("front") rung goes **1 wei under** that price, keeping up to
+`MARS_MAX_LOTS` lots of depth per stone. As that depth sells it's replenished
+from your wallet — so inventory drains steadily instead of dumping thousands of
+units at once. (If a stone's *only* asks are below `MARS_MIN_LOT`, it's treated
+as having no real ask and is left unlisted — set `MARS_MIN_LOT=1` to price off
+qty-1 asks too.)
+
+**It auto-ladders, for free.** The contract caps a single lot at 99 units and
+forbids the same stone id twice in one listing, so any depth over 99 is *already*
+forced across separate listings. The bot prices those forced rungs up a gentle
+geometric curve (+4%/rung, capped at +100%) instead of stacking them all at one
+price. That means only the front slice sits at the best ask; the rest waits
+higher up, so a buyer sweeping 5–10% of your book can't walk your quoted price
+down — and it costs no extra transactions, because those listings had to exist
+anyway. A 1090-unit position becomes twelve 99-lots laddered 5.28 → 8.13, in the
+same tx count as a flat wall. Guards:
 
 - **Never below the best bid** (and never below `MARS_FLOOR_DRILL`) — a troll
   dust ask can't make it dump your inventory.
-- **≤ 1 rebalance per minute**, and only when the price actually moved or you
-  collected meaningfully more ore — so it won't churn gas or start an
-  every-block undercut war.
+- **≤ 1 rebalance per minute**, and only when the ladder actually drifted — the
+  front *or* top rung off target by more than 8% — or you collected meaningfully
+  more ore. So it won't churn gas or start an every-block undercut war, and a
+  flat wall left over from a manual listing gets pulled into a proper ladder on
+  the next cycle.
 
 It manages your sell side end-to-end: a rebalance cancels your existing listings
-and re-lists everything at the fresh targets in a single `list()` tx.
+(returning escrow to the wallet) and re-lists the fresh ladder, bin-packing up
+to 5 distinct stones per `list()` tx.
 
 ## Setup
 

@@ -53,6 +53,14 @@ const cfg = {
 const CHAIN = 4663;
 const HAULER = 2, HAULER_COST = 125;                                 // tier index + DRILL cost
 const MAX_LOT = 99, LOTS_PER_LISTING = 5;                            // on-chain caps: <=99 units/lot, <=5 distinct stones/listing
+const LADDER_STEP = 0.04, LADDER_CAP = 1.0, LADDER_TOL = 0.08;       // ladder: +4%/rung geometric, capped +100%; re-anchor when front/top drifts >8%
+// spread a stone's forced 99-lots up a geometric price curve (free — the lot cap already forces multiple listings)
+function ladLots(stone, qty, frontWei) {
+  const L = Math.ceil(qty / MAX_LOT), out = [], topMult = L <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, L - 1), 1 + LADDER_CAP);
+  let rem = qty, k = 0;
+  while (rem > 0) { const a = Math.min(MAX_LOT, rem); rem -= a; const mult = L <= 1 ? 1 : Math.pow(topMult, k / (L - 1)); out.push({ stone, amount: a, price: frontWei * BigInt(Math.round(mult * 1e6)) / 1000000n }); k++; }
+  return out;
+}
 const STONE_NAMES = ["Sand Rock","Rust","Basalt","Copper","Nickel","Silver","Gold","Platinum","Iridium","Mars Glass","Diamond","Core Blue"];
 
 const A = {
@@ -268,8 +276,8 @@ async function engineMarket() {
   const floorAbs = toWei(cfg.floorDrill);
 
   // my current listings, aggregated per stone
-  const myIds = [], myLots = Array.from({ length: 12 }, () => ({ qty: 0, price: null }));
-  for (const L of listings) if (mine(L.seller)) { myIds.push(L.id); for (const lot of L.lots || []) if (lot.id < 12) { myLots[lot.id].qty += lot.amount; const p = BigInt(lot.price); myLots[lot.id].price = myLots[lot.id].price === null ? p : (p < myLots[lot.id].price ? p : myLots[lot.id].price); } }
+  const myIds = [], myLots = Array.from({ length: 12 }, () => ({ qty: 0, price: null, top: null }));
+  for (const L of listings) if (mine(L.seller)) { myIds.push(L.id); for (const lot of L.lots || []) if (lot.id < 12) { myLots[lot.id].qty += lot.amount; const p = BigInt(lot.price); myLots[lot.id].price = myLots[lot.id].price === null ? p : (p < myLots[lot.id].price ? p : myLots[lot.id].price); myLots[lot.id].top = myLots[lot.id].top === null ? p : (p > myLots[lot.id].top ? p : myLots[lot.id].top); } }
 
   const wallet = await stoneBalances();
 
@@ -295,7 +303,13 @@ async function engineMarket() {
   for (const t of targets) {
     const cur = myLots[t.stone];
     if (cur.price === null) { reasons.push(`list ${STONE_NAMES[t.stone]}×${t.qty}`); continue; }
-    if (cur.price !== t.price) { reasons.push(`reprice ${STONE_NAMES[t.stone]} ${fmtWei(cur.price)}→${fmtWei(t.price)}`); continue; }
+    // re-anchor when the ladder has drifted: front (cheapest rung) OR top (dearest rung) off target by > LADDER_TOL.
+    // catches both a moving market (front drift) and a flat wall that should have been laddered (top drift).
+    const Lr = Math.ceil(t.qty / MAX_LOT);
+    const desTop = Number(t.price) * (Lr <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, Lr - 1), 1 + LADDER_CAP));
+    const fD = Math.abs(Number(cur.price) / Number(t.price) - 1);
+    const tD = cur.top ? Math.abs(Number(cur.top) / desTop - 1) : 0;
+    if (fD > LADDER_TOL || tD > LADDER_TOL) { reasons.push(`reprice ${STONE_NAMES[t.stone]} ${fmtWei(cur.price)}→${fmtWei(t.price)}`); continue; }
     const gap = t.qty - cur.qty;                                // depth sold off that the wallet can top back up
     if (gap >= Math.max(1, Math.floor(t.qty * cfg.relistPct)) && wallet[t.stone] > 0) reasons.push(`refill ${STONE_NAMES[t.stone]} ${cur.qty}→${t.qty}`);
   }
@@ -312,11 +326,8 @@ async function engineMarket() {
   const fresh = cfg.dry ? wallet.map((w, i) => w + myLots[i].qty) : await stoneBalances();   // after cancel, escrow is back in wallet
   // split each stone into <=99 lots; a stone id may appear only once per listing, so bin-pack:
   // listing tranche i holds lot i of every stone that still has one -> unique ids, <=99 each, <=maxLots tranches.
-  const perStone = targets.map((t) => {
-    let rem = Math.min(fresh[t.stone], t.qty); const lots = [];
-    while (rem > 0) { const a = Math.min(MAX_LOT, rem); lots.push({ stone: t.stone, amount: a, price: t.price }); rem -= a; }
-    return lots;
-  }).filter((c) => c.length);
+  // ladder each stone up a rising price curve; the 99-lot cap already forces one listing per rung, so the spread is free
+  const perStone = targets.map((t) => ladLots(t.stone, Math.min(fresh[t.stone], t.qty), t.price)).filter((c) => c.length);
   const K = perStone.reduce((m, c) => Math.max(m, c.length), 0);
   if (!K) { log("  nothing to list after cancel"); return; }
   // one lot of each stone per depth level; split each level into listings of <=LOTS_PER_LISTING distinct stones (contract caps at 5, reverts 0xfe30bf0c past it)
