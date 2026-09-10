@@ -136,7 +136,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">held · bid/ask · 1h activity</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones <span class="r">held/list · ask/bid · 1h</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -395,7 +395,7 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
 function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
   const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
-  $("stoneTbl").innerHTML="<colgroup><col style='width:14px'><col><col style='width:42px'><col style='width:36px'><col style='width:50px'><col style='width:48px'></colgroup><thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n title='held in wallet / listed by you on the market'>Held<br>List</th><th class=n>Bid<br>Ask</th><th class=n title='last hour across the market: DRILL value traded, ▲/▼ vs the hour before · units bought · number of buys'>1h $<br>u·n</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
+  $("stoneTbl").innerHTML="<colgroup><col style='width:14px'><col><col style='width:42px'><col style='width:36px'><col style='width:50px'><col style='width:48px'></colgroup><thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n title='held in wallet / listed by you on the market'>Held<br>List</th><th class=n title='lowest ask / highest bid'>Ask<br>Bid</th><th class=n title='last hour across the market: DRILL value traded, ▲/▼ vs the hour before · units bought · number of buys'>1h $<br>u·n</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
     let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="List ${s[0]}">🏷️</button>`;
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false;
       if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
@@ -412,8 +412,8 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
         actCell=`<div class="stk" title="${tt}"><span class="b">${fmtK(dv)}</span> ${ar}<div class="s">${fmtK(uv)}·${fmt(ct)}</div></div>`;}}
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
     return `<tr><td class=n>${cb}</td><td class=nm><span class=swatch style="background:${s[2]}"></span>${s[0]}</td>`
-      +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</div></div></td>`
-      +`<td class=n><div class="stk"><span class="${b?'grn':'muted'}">${b?fmt(b,2):'–'}</span><div class="s ${a?'':'muted'}">${a?fmt(a,2):'–'}</div></div></td>`
+      +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s"${lst?' style="color:var(--gold)"':''}>${lst?fmt(lst):'–'}</div></div></td>`
+      +`<td class=n><div class="stk"><span class="${a?'red':'muted'}">${a?fmt(a,2):'–'}</span><div class="s"${b?' style="color:var(--green)"':''}>${b?fmt(b,2):'–'}</div></div></td>`
       +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`;}).join("")
     +`<tr style="opacity:.85"><td class=n></td><td class=nm><span class=swatch style="background:${SLUSH.color}"></span>${SLUSH.name}</td><td class="n ${ST.slush?'':'muted'}">${ST.slush==null?'…':fmt(ST.slush)}</td><td class="n muted" colspan=2 style="text-align:center;font-size:9px" title="collected with rigs · refining coming soon">no market yet</td><td class="n act"><span class="muted" style="font-size:10px">soon</span></td></tr>`+"</tbody>";
   renderBatchBtn();renderXfer();}
