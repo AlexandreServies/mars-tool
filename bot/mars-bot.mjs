@@ -46,19 +46,22 @@ const cfg = {
   marketMs:   Math.max(60000, num(process.env.MARS_MARKET_MS, 60000)), // rebalance >= 60s apart
   depthUnits: num(process.env.MARS_DEPTH, 10),                       // dedust: ask must reach this depth
   minLot:     num(process.env.MARS_MIN_LOT, 2),                      // ignore ask lots smaller than this (qty-1 dust)
-  maxLots:    Math.max(1, num(process.env.MARS_MAX_LOTS, 3)),        // sell-side depth per stone, in lots of 99 (contract caps a lot at 99)
+  maxUnits:   Math.max(1, num(process.env.MARS_MAX_UNITS, 9999)),    // sell-side depth to keep listed per stone (units)
   relistPct:  num(process.env.MARS_RELIST_PCT, 0.10),               // relist for qty growth >= this frac
   floorDrill: num(process.env.MARS_FLOOR_DRILL, 0),                  // extra absolute price floor (DRILL/stone)
 };
 const CHAIN = 4663;
 const HAULER = 2, HAULER_COST = 125;                                 // tier index + DRILL cost
-const MAX_LOT = 99, LOTS_PER_LISTING = 5;                            // on-chain caps: <=99 units/lot, <=5 distinct stones/listing
+// market v2 (2026-09-10): a lot holds up to 9,999 units, <=5 distinct stones per listing, list(uint8[],uint16[],uint128[]).
+// Legacy (v1) listings still exist and are cancelled on their own contract; every new listing goes to v2.
+const MAX_LOT = 9999, LOTS_PER_LISTING = 5;
 const LADDER_STEP = 0.04, LADDER_CAP = 0.30, LADDER_TOL = 0.08;      // ladder: +4%/rung geometric, total spread capped at +30%; re-anchor when front/top drifts >8%
-// spread a stone's forced 99-lots up a geometric price curve (free — the lot cap already forces multiple listings)
+const LADDER_RUNGS = 8, LADDER_MIN = 25;                             // up to 8 rungs of >=25 units (rungs are a choice now, not forced by the lot cap)
+const rungs = (qty) => Math.max(Math.ceil(qty / MAX_LOT), Math.min(LADDER_RUNGS, Math.max(1, Math.ceil(qty / LADDER_MIN))));
+// spread a stone over its rungs up a geometric price curve
 function ladLots(stone, qty, frontWei) {
-  const L = Math.ceil(qty / MAX_LOT), out = [], topMult = L <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, L - 1), 1 + LADDER_CAP);
-  let rem = qty, k = 0;
-  while (rem > 0) { const a = Math.min(MAX_LOT, rem); rem -= a; const mult = L <= 1 ? 1 : Math.pow(topMult, k / (L - 1)); out.push({ stone, amount: a, price: frontWei * BigInt(Math.round(mult * 1e6)) / 1000000n }); k++; }
+  const L = rungs(qty), topMult = L <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, L - 1), 1 + LADDER_CAP), base = Math.floor(qty / L), ex = qty % L, out = [];
+  for (let k = 0; k < L; k++) { const a = base + (k < ex ? 1 : 0); if (a <= 0) continue; const mult = L <= 1 ? 1 : Math.pow(topMult, k / (L - 1)); out.push({ stone, amount: a, price: frontWei * BigInt(Math.round(mult * 1e6)) / 1000000n }); }
   return out;
 }
 const STONE_NAMES = ["Sand Rock","Rust","Basalt","Copper","Nickel","Silver","Gold","Platinum","Iridium","Mars Glass","Diamond","Core Blue"];
@@ -70,15 +73,16 @@ const A = {
   ore:     "0xd9d674b04a72affe00e06385535eaac10b988fca",
   stones:  "0x063bdba5c8c29a57c6530f2668cfd040b1282118",
   treasury:"0x8C394DEAf48ec1bd11FA297707c96021207ed48E",
-  market:  "0x68eA283B0ff2D26fc7DDD5b4C30661DC524DE2Bc",
+  market:  "0x68eA283B0ff2D26fc7DDD5b4C30661DC524DE2Bc",   // legacy v1 (old listings/bids, 99 per lot)
+  market2: "0x58bbEBA135a4B6f913EC943b3a5D8574bbeB5211",   // v2: all new listings (9,999 per lot)
   poolMgr: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
 };
 const S = {
   balanceOf:        "0x70a08231", allowance:        "0xdd62ed3e",
   approve:          "0x095ea7b3", balanceOfBatch:  "0x4e1273f4", isApprovedForAll: "0xe985e9c5",
   setApprovalForAll:"0xa22cb465", deployMany:       "0x6dcb2774", siteOf:          "0x018163dc",
-  isOpen:           "0x4d6861a6", collect:         "0xeeffeb45", list:             "0x00dd0cbb",
-  cancelListing:    "0x40e58ee5",
+  isOpen:           "0x4d6861a6", collect:         "0xeeffeb45", list2:            "0x2a5c2925",
+  cancelListing:    "0x40e58ee5",   // shared by both markets
 };
 
 // -------------------------------------------------------------- helpers ------
@@ -169,8 +173,8 @@ async function ensureAllowance(spender, needWei, label) {
   await tx(A.ore, data(S.approve, ["address", "uint256"], [spender, needWei * 4n]), `approve ${label}`);
 }
 async function ensureStoneApproval() {
-  const ok = BigInt(await call(A.stones, data(S.isApprovedForAll, ["address", "address"], [ME, A.market]))) === 1n;
-  if (!ok) await tx(A.stones, data(S.setApprovalForAll, ["address", "bool"], [A.market, true]), "approve market (stones)");
+  const ok = BigInt(await call(A.stones, data(S.isApprovedForAll, ["address", "address"], [ME, A.market2]))) === 1n;
+  if (!ok) await tx(A.stones, data(S.setApprovalForAll, ["address", "bool"], [A.market2, true]), "approve market v2 (stones)");
 }
 
 // ============================================================ ENGINE 1 =======
@@ -247,7 +251,7 @@ const lvHist = (ls) => { const m = {}; ls.forEach((l) => (m[l] = (m[l] || 0) + 1
 let lastRebalance = 0;
 async function engineMarket() {
   if (Date.now() - lastRebalance < cfg.marketMs) return;   // hard cap: 1 rebalance / minute
-  const book = await api("/book");
+  const book = await api("/book?version=2");   // one order book across both markets; entries carry marketVersion 1|2
   const listings = book.listings || [], offers = book.offers || [];
   const mine = (a) => lc(a) === lc(ME);
 
@@ -265,14 +269,12 @@ async function engineMarket() {
 
   // my current listings, aggregated per stone
   const myIds = [], myLots = Array.from({ length: 12 }, () => ({ qty: 0, price: null, top: null }));
-  for (const L of listings) if (mine(L.seller)) { myIds.push(L.id); for (const lot of L.lots || []) if (lot.id < 12) { myLots[lot.id].qty += lot.amount; const p = BigInt(lot.price); myLots[lot.id].price = myLots[lot.id].price === null ? p : (p < myLots[lot.id].price ? p : myLots[lot.id].price); myLots[lot.id].top = myLots[lot.id].top === null ? p : (p > myLots[lot.id].top ? p : myLots[lot.id].top); } }
+  for (const L of listings) if (mine(L.seller)) { myIds.push({ id: L.id, mkt: L.marketVersion === 2 ? A.market2 : A.market }); for (const lot of L.lots || []) if (lot.id < 12) { myLots[lot.id].qty += lot.amount; const p = BigInt(lot.price); myLots[lot.id].price = myLots[lot.id].price === null ? p : (p < myLots[lot.id].price ? p : myLots[lot.id].price); myLots[lot.id].top = myLots[lot.id].top === null ? p : (p > myLots[lot.id].top ? p : myLots[lot.id].top); } }
 
   const wallet = await stoneBalances();
 
-  // desired sell-side depth per stone = min(held+listed, maxLots*99) at (bestOther-1), floored.
-  // capped so the maker keeps a competitive depth and replenishes as it sells, instead of dumping
-  // thousands of units across dozens of txs (the contract caps a lot at 99 and forbids duplicate ids).
-  const CAPUNITS = cfg.maxLots * 99;
+  // desired sell-side depth per stone = min(held+listed, maxUnits) at (bestOther-1), floored.
+  const CAPUNITS = cfg.maxUnits;
   const targets = [];
   for (let i = 0; i < 12; i++) {
     if (bestOther[i] === 0n) continue;                         // nobody else selling -> nothing to undercut
@@ -293,7 +295,7 @@ async function engineMarket() {
     if (cur.price === null) { reasons.push(`list ${STONE_NAMES[t.stone]}×${t.qty}`); continue; }
     // re-anchor when the ladder has drifted: front (cheapest rung) OR top (dearest rung) off target by > LADDER_TOL.
     // catches both a moving market (front drift) and a flat wall that should have been laddered (top drift).
-    const Lr = Math.ceil(t.qty / MAX_LOT);
+    const Lr = rungs(t.qty);
     const desTop = Number(t.price) * (Lr <= 1 ? 1 : Math.min(Math.pow(1 + LADDER_STEP, Lr - 1), 1 + LADDER_CAP));
     const fD = Math.abs(Number(cur.price) / Number(t.price) - 1);
     const tD = cur.top ? Math.abs(Number(cur.top) / desTop - 1) : 0;
@@ -308,13 +310,12 @@ async function engineMarket() {
   lastRebalance = Date.now();
 
   // cancel all my listings (returns escrow to the wallet), then re-list at fresh targets
-  for (const id of myIds) { try { await tx(A.market, data(S.cancelListing, ["uint256"], [id]), `cancel #${id}`); } catch (e) { log(`  cancel #${id} failed: ${errStr(e)}`); } }
+  for (const { id, mkt } of myIds) { try { await tx(mkt, data(S.cancelListing, ["uint256"], [id]), `cancel #${id}${mkt === A.market ? " (legacy)" : ""}`); } catch (e) { log(`  cancel #${id} failed: ${errStr(e)}`); } }
 
   await ensureStoneApproval();
   const fresh = cfg.dry ? wallet.map((w, i) => w + myLots[i].qty) : await stoneBalances();   // after cancel, escrow is back in wallet
-  // split each stone into <=99 lots; a stone id may appear only once per listing, so bin-pack:
-  // listing tranche i holds lot i of every stone that still has one -> unique ids, <=99 each, <=maxLots tranches.
-  // ladder each stone up a rising price curve; the 99-lot cap already forces one listing per rung, so the spread is free
+  // ladder each stone over its rungs; a stone id may appear only once per listing, so bin-pack:
+  // listing tranche i holds rung i of every stone that still has one -> unique ids, <=9,999 each.
   const perStone = targets.map((t) => ladLots(t.stone, Math.min(fresh[t.stone], t.qty), t.price)).filter((c) => c.length);
   const K = perStone.reduce((m, c) => Math.max(m, c.length), 0);
   if (!K) { log("  nothing to list after cancel"); return; }
@@ -324,7 +325,7 @@ async function engineMarket() {
   const summary = perStone.map((c) => `${STONE_NAMES[c[0].stone]}×${c.reduce((s, l) => s + l.amount, 0)}@${fmtWei(c[0].price)}`).join(", ");
   if (cfg.dry) { log(`  DRY  would list ${summary} in ${listTxs.length} tx`); return; }
   for (let k = 0; k < listTxs.length; k++) { const lots = listTxs[k];
-    await tx(A.market, data(S.list, ["uint256[]", "uint256[]", "uint256[]"], [lots.map((l) => l.stone), lots.map((l) => l.amount), lots.map((l) => l.price)]), `list ${k + 1}/${listTxs.length} (${lots.length} stone)`);
+    await tx(A.market2, data(S.list2, ["uint8[]", "uint16[]", "uint128[]"], [lots.map((l) => l.stone), lots.map((l) => l.amount), lots.map((l) => l.price)]), `list ${k + 1}/${listTxs.length} (${lots.length} stone)`);
   }
   log(`  listed ${summary} in ${listTxs.length} tx`);
 }
@@ -351,7 +352,7 @@ async function main() {
   log(`gas ETH  ${fmtWei(eth, 5)}`);
   log(`engines  farm=${cfg.farm ? "on" : "off"} market=${cfg.market ? "on" : "off"}`);
   if (cfg.farm) log(`  farm   keep ${cfg.targetRigs} rigs, fund from wallet DRILL${cfg.drillReserve ? ` (reserve ${cfg.drillReserve})` : ""}${cfg.maxSpend ? `, <=${cfg.maxSpend}/cycle` : ""}, external=${cfg.external}, every ${cfg.farmMs / 1000}s`);
-  if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, keep <=${cfg.maxLots} lots (${cfg.maxLots * 99}) per stone, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
+  if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, keep <=${fmtN(cfg.maxUnits)} units listed per stone, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
   log("==========================================");
 
   if (cfg.farm) { try { await signIn(); } catch (e) { log(`sign-in failed (collect will retry): ${errStr(e)}`); } }
