@@ -37,6 +37,18 @@
   th,td{text-align:left;padding:4px 7px;border-bottom:1px solid var(--line)}
   th{color:var(--mut);font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
   td.n,th.n{text-align:right}
+  #stoneTbl{font-size:11px;table-layout:fixed}
+  #stoneTbl th,#stoneTbl td{padding:3px 4px;overflow:hidden}
+  #stoneTbl th{font-size:8.5px;line-height:1.1}
+  #stoneTbl .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #stoneTbl td.act{white-space:normal;line-height:1}
+  #stoneTbl .swatch{width:7px;height:7px;margin-right:3px}
+  #stoneTbl button.mini{padding:1px 4px;font-size:11px;margin:0 1px 1px 0}
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stk{line-height:1.05;white-space:nowrap}
+  .stk .b{font-weight:600}
+  .stk .s{font-size:8.5px;color:var(--mut);letter-spacing:-.02em}
+  @media(max-width:440px){.wrap{padding-left:8px;padding-right:8px}.card{padding-left:9px;padding-right:9px}}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
   .t-open{background:#12341f;color:var(--green)}.t-closed{background:#25211d;color:var(--mut)}
   .t-busy{background:#3a1c16;color:var(--drill)}.t-idle{background:#1a2733;color:var(--blue)}
@@ -124,7 +136,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">held · listed · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones <span class="r">held · bid/ask · 1h activity</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -199,7 +211,7 @@ const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0))
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,vol1h:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,act:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
 let WALLET=null,PROVIDER=null,NONCE=null,COST={}; // WALLET=ethers signer, NONCE tracked locally for fast sequential txs
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -208,6 +220,7 @@ const isAddr=a=>/^0x[0-9a-fA-F]{40}$/.test(a);
 const w=v=>BigInt(v).toString(16).padStart(64,"0");
 const wa=a=>a.replace(/^0x/,"").toLowerCase().padStart(64,"0");
 const fmt=(n,d=0)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
+const fmtK=n=>{n=Number(n)||0;return n>=1e6?(n/1e6).toFixed(n<1e7?1:0)+"m":n>=1e3?(n/1e3).toFixed(n<1e4?1:0)+"k":fmt(Math.round(n));};
 // sign + broadcast locally with ethers, tracking nonce so a 6-tx upgrade fires back-to-back. Waits for inclusion.
 async function send(tx){if(!WALLET)throw new Error("Connect your key first");
   const req={to:tx.to,data:tx.data||"0x",value:tx.value?BigInt(tx.value):0n};
@@ -306,26 +319,30 @@ async function slushBalance(addr){
 // lazy refresh: it's a slow scan, so show "…" (or keep the last value) and fill when done; skip on light refresh once known
 function slushRefresh(light){if(ST.slushAddr!==ST.addr){ST.slush=null;ST.slushAddr=ST.addr;}else if(light&&ST.slush!=null)return;
   const who=ST.addr;slushBalance(who).then(v=>{if(who===ST.addr){ST.slush=v;renderStones();}}).catch(()=>{});}
-// market-wide activity: units of each stone bought (listing fills) in ~the last hour. Not address-specific; throttled.
-async function soldLastHour(){
-  const head=parseInt(await rpc("eth_blockNumber",[]),16),from=Math.max(DEPLOY_BLOCK,head-BLOCKS_1H),CH=9000;
+// market-wide activity per stone over the last hour AND the hour before (for the trend arrow): units bought, DRILL
+// value traded, and buy count. Value is split across a multi-stone buy by catalog-value weight (exact for single-stone).
+async function marketActivity(){
+  const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,from=Math.max(DEPLOY_BLOCK,head-2*BLOCKS_1H),mid=head-BLOCKS_1H;
   const one=async(f,t,tries)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.market,topics:[MARKET_SALE_TOPIC]}]);}catch(e){if(tries>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tries-1);}return [];}};
   const R=[];for(let b=from;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
-  const res=await Promise.all(R.map(([f,t])=>one(f,t,3))),vol=Array(12).fill(0);
+  const res=await Promise.all(R.map(([f,t])=>one(f,t,3)));
+  const u=Array(12).fill(0),v=Array(12).fill(0),c=Array(12).fill(0),pv=Array(12).fill(0);   // units, DRILL value, buys (this hr); value (prev hr)
   for(const r of res)if(Array.isArray(r))for(const lg of r){const d=(lg.data||"").replace(/^0x/,"");if(d.length<192)continue;const W=i=>d.slice(i*64,i*64+64);
-    const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,n=parseInt(W(io),16);   // ids[] and amounts[] offsets (support multi-stone buys)
-    for(let k=0;k<n;k++){const id=parseInt(W(io+1+k),16),amt=parseInt(W(ao+1+k),16);if(id<12)vol[id]+=amt;}}
-  return vol;
+    const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,price=Number(BigInt("0x"+W(2)))/1e18,n=parseInt(W(io),16),now=parseInt(lg.blockNumber,16)>mid;
+    const ids=[],am=[];let tw=0;for(let k=0;k<n;k++){const id=parseInt(W(io+1+k),16),a=parseInt(W(ao+1+k),16);ids.push(id);am.push(a);if(id<12)tw+=a*(STONE[id][1]||1e-4);}
+    for(let k=0;k<n;k++){const id=ids[k];if(id>=12)continue;const share=n===1?1:(tw>0?am[k]*(STONE[id][1]||1e-4)/tw:1/n);
+      if(now){u[id]+=am[k];c[id]++;v[id]+=price*share;}else pv[id]+=price*share;}}
+  return {u,v,c,pv};
 }
-let lastVol=0;
-function volRefresh(){if(Date.now()-lastVol<30000&&ST.vol1h)return;lastVol=Date.now();
-  soldLastHour().then(v=>{ST.vol1h=v;renderStones();}).catch(()=>{});}
+let lastAct=0;
+function actRefresh(){if(Date.now()-lastAct<30000&&ST.act)return;lastAct=Date.now();
+  marketActivity().then(a=>{ST.act=a;renderStones();}).catch(()=>{});}
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
-  volRefresh();          // market activity (units bought last hour), throttled to 30s
+  actRefresh();          // market activity (value/units/buys + trend), throttled to 30s
   const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
@@ -378,7 +395,7 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
 function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
   const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
-  $("stoneTbl").innerHTML="<thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th class=n title='units bought across the market in the last hour'>1h vol</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
+  $("stoneTbl").innerHTML="<colgroup><col style='width:14px'><col><col style='width:42px'><col style='width:36px'><col style='width:50px'><col style='width:48px'></colgroup><thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n title='held in wallet / listed by you on the market'>Held<br>List</th><th class=n>Bid<br>Ask</th><th class=n title='last hour across the market: DRILL value traded, ▲/▼ vs the hour before · units bought · number of buys'>1h $<br>u·n</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
     let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="List ${s[0]}">🏷️</button>`;
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false;
       if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
@@ -386,8 +403,19 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
       if(showAdj)act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Adjust ${s[0]} to market">🔄</button>`;}
     if(lst>0)act+=(act?' ':'')+`<button class="mini sec" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
     if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
+    // 1h activity: DRILL value traded (primary) + trend arrow vs prior hour, with units·buys underneath
+    let actCell='';
+    if(ST.act){const uv=ST.act.u[i],dv=ST.act.v[i],ct=ST.act.c[i],pvv=ST.act.pv[i];
+      if(!uv&&!dv)actCell='<span class="muted">–</span>';
+      else{const tr=pvv>0?(dv-pvv)/pvv:(dv>0?1:0),ar=tr>0.05?'<span class="grn">▲</span>':tr<-0.05?'<span class="red">▼</span>':'<span class="muted">·</span>';
+        const tt=fmt(uv)+' '+s[0]+' bought · '+fmtK(dv)+' DRILL · '+fmt(ct)+' buy'+(ct===1?'':'s')+(pvv>0?' · '+(tr>=0?'+':'')+Math.round(tr*100)+'% vs prev hr':'');
+        actCell=`<div class="stk" title="${tt}"><span class="b">${fmtK(dv)}</span> ${ar}<div class="s">${fmtK(uv)}·${fmt(ct)}</div></div>`;}}
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
-    return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class="n ${(ST.vol1h&&ST.vol1h[i])?'':'muted'}" title="${(ST.vol1h&&ST.vol1h[i])?fmt(ST.vol1h[i])+' '+s[0]+' bought in the last hour':''}">${ST.vol1h==null?'':(ST.vol1h[i]?fmt(ST.vol1h[i]):'–')}</td><td class=n>${act}</td></tr>`;}).join("")+`<tr style="opacity:.85"><td class=n></td><td><span class=swatch style="background:${SLUSH.color}"></span>${SLUSH.name}</td><td class="n ${ST.slush?'':'muted'}">${ST.slush==null?'…':fmt(ST.slush)}</td><td class="n muted" colspan=4 style="text-align:center;font-size:11px">collected with rigs · no market yet</td><td class=n><span class="muted" title="refining coming soon" style="font-size:11px">soon</span></td></tr>`+"</tbody>";
+    return `<tr><td class=n>${cb}</td><td class=nm><span class=swatch style="background:${s[2]}"></span>${s[0]}</td>`
+      +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</div></div></td>`
+      +`<td class=n><div class="stk"><span class="${b?'grn':'muted'}">${b?fmt(b,2):'–'}</span><div class="s ${a?'':'muted'}">${a?fmt(a,2):'–'}</div></div></td>`
+      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`;}).join("")
+    +`<tr style="opacity:.85"><td class=n></td><td class=nm><span class=swatch style="background:${SLUSH.color}"></span>${SLUSH.name}</td><td class="n ${ST.slush?'':'muted'}">${ST.slush==null?'…':fmt(ST.slush)}</td><td class="n muted" colspan=2 style="text-align:center;font-size:9px" title="collected with rigs · refining coming soon">no market yet</td><td class="n act"><span class="muted" style="font-size:10px">soon</span></td></tr>`+"</tbody>";
   renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
 function toggleSel(i){if(!ST.listSel)ST.listSel=new Set();if(ST.listSel.has(i))ST.listSel.delete(i);else ST.listSel.add(i);renderBatchBtn();}
