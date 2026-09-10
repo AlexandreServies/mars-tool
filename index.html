@@ -295,7 +295,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   ST.free=(ws.length>=7&&parseInt(ws[0],16)===32&&parseInt(ws[1],16)===5?ws.slice(2,7):ws.slice(0,5)).map(x=>parseInt(x||"0",16));
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
   $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);$("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n[0]:"").filter(Boolean).join(" ");
-  const sv=ST.stones.reduce((a,n,i)=>a+n*STONE[i][1],0);$("mStoneVal").textContent=fmt(sv);renderStones();
+  const sv=ST.stones.reduce((a,n,i)=>a+n*(i?STONE[i][1]:0),0);$("mStoneVal").textContent=fmt(sv);renderStones();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
@@ -478,7 +478,7 @@ async function sendStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerH
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
   if($("mDrillX"))$("mDrillX").textContent=e?"≈ "+fmt(ST.drill*e,3)+" ETH":"";
-  const sv=ST.stones.reduce((a,n,i)=>a+n*oreMkt(i),0);if($("mStoneVal"))$("mStoneVal").textContent=fmt(sv);
+  const sv=ST.stones.reduce((a,n,i)=>a+n*(i?oreMkt(i):0),0);if($("mStoneVal"))$("mStoneVal").textContent=fmt(sv);
   if($("mStoneValX"))$("mStoneValX").textContent=e&&sv?"≈ "+fmt(sv*e,3)+" ETH":(mktReady()?"DRILL":"");}
 function stonesEnough(lvl){const c=COST[lvl];if(!c)return null;return c.ids.every((id,k)=>ST.stones[id]>=c.amts[k]);}
 function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=>c.amts[k]+"×"+STONE[id][0]).join(", ");}
