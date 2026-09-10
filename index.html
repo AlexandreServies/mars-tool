@@ -178,6 +178,11 @@
     <table id="rigsTbl"></table>
   </div>
 
+  <div class="card" id="lvCard" hidden>
+    <h2>Plot levels <span class="r" id="lvR">planet snapshot</span></h2>
+    <div id="lvBody"></div>
+  </div>
+
   <div class="card" id="prodCard" hidden>
     <h2>Production timeline <span class="r" id="prodR">planet · 5m · 8h</span></h2>
     <div class="paxis"><span class="pnm"></span><span class="pbar"><span>now</span><span>+2h</span><span>+4h</span><span>+6h</span><span>8h</span></span><span class="ptot">Σ8h</span></div>
@@ -532,6 +537,23 @@ function renderRigs(){const tb=$("rigsTbl");if(!tb)return;const now=Date.now(),l
   tb.innerHTML='<thead><tr><th>Rig</th><th class=n title="your rigs running now">Yours</th><th class=n title="rigs running planet-wide right now">Planet</th><th class=n title="your share of the planet\'s running rigs">Share</th><th class=n title="planted planet-wide in the last hour">+1h</th></tr></thead><tbody>'
     +TIERS.map((t,i)=>`<tr><td>${t.n}</td><td class=n>${mine[i]?'<b>'+mine[i]+'</b>':'<span class=muted>–</span>'}</td><td class=n>${n(planet[i])}</td><td class=n>${loading?'…':sh(mine[i],planet[i])}</td><td class=n>${n(h1[i])}</td></tr>`).join("")
     +`<tr style="font-weight:600;border-top:1px solid var(--mut2)"><td>All</td><td class=n>${mm}</td><td class=n>${n(pm)}</td><td class=n>${loading?'…':sh(mm,pm)}</td><td class=n>${n(hm)}</td></tr></tbody>`;}
+// planet-wide plot levels: ONE Multicall3 call (13 levelsBatch chunks of 400) covers all 5,000 plots; refreshed every 10 min
+const PLOTS_TOTAL=5000;let lvBusy=false;
+async function levelsRefresh(force){if(lvBusy||(!force&&ST.lvAt&&Date.now()-ST.lvAt<600000))return;lvBusy=true;
+  try{const calls=[];for(let b=1;b<=PLOTS_TOTAL;b+=400){const ids=[];for(let i=b;i<Math.min(b+400,PLOTS_TOTAL+1);i++)ids.push(i);calls.push({to:A.plots,data:S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("")});}
+    const dec=decAgg3(await ethCall(MC3,encAgg3(calls)));const cnt=Array(MAXLVL+1).fill(0);let n=0;
+    dec.forEach(r=>{if(!r.success||!r.data)return;const h=r.data.replace(/^0x/,""),W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16)||0;for(let i=0;i<len;i++){cnt[Math.min(MAXLVL,Math.max(1,parseInt(W(2+i),16)||1))]++;n++;}});
+    if(n){ST.lvDist=cnt;ST.lvN=n;ST.lvAt=Date.now();}renderLevels();
+  }catch(e){log("levels: "+e.message);}finally{lvBusy=false;}}
+// bars: planet count per level, linear scale, count on top of each bar
+function renderLevels(){const el=$("lvBody");if(!el)return;const cnt=ST.lvDist;if(!cnt){el.innerHTML='<div class="sub">loading…</div>';return;}
+  const mx=Math.max(1,...cnt.slice(1)),H=100,top=14,bot=12,W=400,bw=W/MAXLVL;let s='';
+  for(let l=1;l<=MAXLVL;l++){const c=cnt[l],h=c?Math.max(1.5,c/mx*H):0,x=(l-1)*bw+2,y=top+H-h,cx=x+(bw-4)/2;
+    s+=`<rect x="${x}" y="${y.toFixed(1)}" width="${bw-4}" height="${h.toFixed(1)}" rx="1.5" fill="var(--drill)" opacity=".7"/>`;
+    s+=`<text x="${cx}" y="${(y-2.5).toFixed(1)}" font-size="7.5" text-anchor="middle" fill="var(--ink)">${c?fmtK(c):''}</text>`;
+    s+=`<text x="${cx}" y="${top+H+9}" font-size="7.5" text-anchor="middle" fill="var(--mut2)">${l}</text>`;}
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${top+H+bot}" style="width:100%;display:block;font-family:inherit">${s}</svg>`;
+  const r=$("lvR");if(r)r.textContent=fmt(ST.lvN||0)+' plots · level 1–'+MAXLVL;}
 // one row per stone: a 5-min-bucket histogram of expected units ripening across the planet over the next 8h (per-row scaled)
 function renderProd(){
   const body=$("prodBody");if(!body)return;
@@ -545,10 +567,11 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=false;renderRig();renderProd();renderWaves();renderRigs();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=false;renderRig();renderProd();renderWaves();renderRigs();renderLevels();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
+  levelsRefresh();       // planet plot-level snapshot: one batched call, at most every 10 min
   const [drillRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
@@ -575,7 +598,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
-  renderPort();renderDeploy();renderRig();renderRigs();renderStones();fillUpSel();loadCosts().then(fillUpSel);
+  renderPort();renderDeploy();renderRig();renderRigs();renderLevels();renderStones();fillUpSel();loadCosts().then(fillUpSel);
   await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();
   if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
