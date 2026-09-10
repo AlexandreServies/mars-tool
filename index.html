@@ -135,7 +135,10 @@
   <div class="card" id="xferCard" hidden>
     <h2>Transfer stones <span class="r">send materials to any address</span></h2>
     <div class="btnrow">
-      <input id="xferTo" class="mono" style="flex:1;min-width:150px" placeholder="0x… recipient address" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <select id="xferPreset" style="flex:0 0 auto;min-width:96px" title="pick a saved recipient by label"></select>
+      <input id="xferTo" class="mono" style="flex:1;min-width:150px" placeholder="0x… or pick a label" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="btnrow" style="margin-top:7px">
       <select id="xferStone" style="flex:1;min-width:130px"></select>
       <input id="xferQty" class="mono" style="width:64px" inputmode="numeric" placeholder="qty">
       <button class="sec mini" id="xferMax" title="fill in your full held balance">Max</button>
@@ -431,12 +434,15 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- transfer stones to any address (ERC-1155 safeTransferFrom; from == you, so no approval needed) ----
+const XFER_PRESETS=[{label:"KP",addr:"0x5320bedc1980f5b56d6bdea71a450a287493142f"}]; // saved recipients — dropdown shows the label only; add more here
 function encXfer(to,id,amount){return S.safeTransferFrom+ethers.AbiCoder.defaultAbiCoder().encode(["address","address","uint256","uint256","bytes"],[ST.addr,to,id,amount,"0x"]).slice(2);}
+function fillXferPresets(){const sel=$("xferPreset");if(!sel)return;sel.innerHTML='<option value="">Presets ▾</option>'+XFER_PRESETS.map(p=>'<option value="'+p.addr+'">'+p.label+'</option>').join("");}
 function renderXfer(){const sel=$("xferStone");if(!sel)return;const cur=sel.value;
   sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("");
   if(cur!=="")sel.value=cur;xferHint();}
 function xferHint(){const el=$("xferHint");if(!el)return;const id=Number($("xferStone").value||0),held=ST.stones[id]||0;
-  el.innerHTML=!ST.canSign?"Connect your key to send — view-only can't transfer.":held>0?'You hold <b>'+fmt(held)+'</b> × '+STONE[id][0]+". Arrives instantly and <b>can't be undone</b> — double-check the address.":"You don't hold any "+STONE[id][0]+".";}
+  const to=($("xferTo").value||"").trim(),pre=XFER_PRESETS.find(p=>p.addr.toLowerCase()===to.toLowerCase()),who=pre?' → <b>'+pre.label+'</b>':(isAddr(to)?' → '+to.slice(0,6)+"…"+to.slice(-4):"");
+  el.innerHTML=!ST.canSign?"Connect your key to send — view-only can't transfer.":held>0?'You hold <b>'+fmt(held)+'</b> × '+STONE[id][0]+who+". Arrives instantly and <b>can't be undone</b> — double-check the address.":"You don't hold any "+STONE[id][0]+".";}
 async function sendStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first — view-only can't send.");return;}
   const to=($("xferTo").value||"").trim();
@@ -630,6 +636,7 @@ $("pk").addEventListener("keydown",e=>{if(e.key==="Enter")connectPK();});
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);});
 $("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
 $("xferBtn").onclick=sendStones;$("xferMax").onclick=()=>{const id=Number($("xferStone").value||0);$("xferQty").value=ST.stones[id]||0;};$("xferStone").onchange=xferHint;$("xferTo").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});$("xferQty").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});
+fillXferPresets();$("xferPreset").onchange=e=>{if(e.target.value)$("xferTo").value=e.target.value;xferHint();};$("xferTo").addEventListener("input",()=>{const s=$("xferPreset");if(s&&s.value&&s.value.toLowerCase()!==($("xferTo").value||"").trim().toLowerCase())s.selectedIndex=0;xferHint();});
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
 renderRig();
