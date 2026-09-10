@@ -153,7 +153,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">held/list · ask/bid · 1h</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones <span class="r">🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -162,9 +162,9 @@
   </div>
 
   <div class="card" id="optCard" hidden>
-    <h2>DRILL/h optimizer <span class="r">◄ per slot · $ per DRILL</span></h2>
+    <h2>DRILL/h optimizer <span class="r">◄ best per slot · $ best per DRILL</span></h2>
     <div class="btnrow" style="margin-bottom:7px;font-size:11px">
-      <span class="sub">ore at</span><span class="seg"><button id="optAsk" class="on" title="ore sold at the lowest ask (what buyers pay now) −5% fee">ask</button><button id="optBid" title="ore dumped into the best bid −5% fee (floor)">bid</button></span>
+      <span class="sub">ore</span><span class="seg"><button id="optAsk" class="on" title="ore sells at today's lowest listed price (−5% fee)">sold at price</button><button id="optBid" title="ore dumped instantly into the best bids (−5% fee) — the floor">dumped</button></span>
       <span class="sub" style="margin-left:2px">re-plant</span><select id="optH" style="width:auto;padding:3px 6px;font-size:11px" title="how often you can come back to collect and re-plant — a finished rig blocks its slot until then"><option value="0.5">30m</option><option value="1">1h</option><option value="2">2h</option><option value="4">4h</option><option value="8">8h</option></select>
       <label style="display:flex;align-items:center;gap:3px;font-size:11px;text-transform:none;margin:0" title="also plant on other players' open plots (planter share of the bonus only)"><input type="checkbox" id="optExt" checked style="width:auto">others’</label>
     </div>
@@ -179,7 +179,7 @@
   </div>
 
   <div class="card" id="waveCard" hidden>
-    <h2>Wave pressure <span class="r">next 8h · tap a row</span></h2>
+    <h2>Sell timing <span class="r">tap a row · 🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2>
     <div class="tscroll" id="waveBody"></div>
   </div>
 
@@ -478,17 +478,19 @@ function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st
   const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
   const big=e=>e*st.f>=thr,hit=st.nw?st.nw.t+st.lag:Infinity,clear=dem>0&&st.net<0?an/(-st.net):Infinity;
   const pm=x=>(x>=0?"+":"−")+fmtK(Math.abs(x));
-  let tip="book: listed "+fmtK(st.lst)+"/h · cancelled "+fmtK(st.cnl)+"/h · bought "+fmtK(dem)+"/h → net "+pm(st.net)+"/h · ask depth "+fmtK(au)+" ("+fmtK(an)+" within +10%"+(clear<48?", clears in ~"+fmtDur(clear):"")+")";
-  tip+=" · next 2h: "+fmtK(st.S2)+" u ripening, ~"+Math.round(st.f*100)+"% gets listed"+(dem?" = "+Math.round(100*st.S2*st.f/(2*dem))+"% of what buyers take in 2h":"");
-  tip+=st.nw?" · biggest burst +"+fmtDur(st.nw.t)+": "+fmtK(st.nw.u)+" u ("+fmtK(st.nw.ex)+" above normal), sellers due ~+"+fmtDur(hit):" · no burst above normal in the next 8h";
-  tip+=" · sellers list ~"+fmtDur(st.lag)+" after ripening (r "+st.lagR.toFixed(2)+")"+(isNaN(st.dPct)?"":" · past bursts: "+(st.dPct>=0?"+":"")+Math.round(st.dPct*100)+"% after (n="+st.n+")");
+  const sure=st.lagR>=0.4?"solid":st.lagR>=0.2?"weak":"a guess";
+  let tip="for sale: "+fmtK(au)+" units, "+fmtK(an)+" near the lowest price"+(clear<48?" (buyers clear those in ~"+fmtDur(clear)+")":"")+" · per hour: +"+fmtK(st.lst)+" listed, −"+fmtK(st.cnl)+" cancelled, −"+fmtK(dem)+" bought → pile "+(st.net>=0?"grows ":"shrinks ")+fmtK(Math.abs(st.net))+"/h";
+  tip+=" · next 2h: "+fmtK(st.S2)+" ripening across the planet, ~"+Math.round(st.f*100)+"% of that gets listed"+(dem?" = "+Math.round(100*st.S2*st.f/(2*dem))+"% of what buyers take in 2h":"");
+  tip+=st.nw?" · biggest spike +"+fmtDur(st.nw.t)+": "+fmtK(st.nw.u)+" ripening ("+fmtK(st.nw.ex)+" more than usual), its sellers arrive ~+"+fmtDur(hit):" · no spike above usual in the next 8h";
+  tip+=" · sellers list ~"+fmtDur(st.lag)+" after ripening ("+sure+")"+(isNaN(st.dPct)?"":" · price after past spikes: "+(st.dPct>=0?"+":"")+Math.round(st.dPct*100)+"% ("+st.n+" spike"+(st.n===1?"":"s")+")");
+  // red = sell now (price about to drop) · yellow = sell before a time · blue = wait (sellers flooding in right now) · green = hold · grey = no trades
   let r;if(st.nw&&big(st.nw.ex)&&hit<=1.5)r={k:"now",txt:"⚡ sell now",col:"var(--red)"};
   else if(st.nw&&big(st.nw.ex)&&hit<=8.5)r={k:"by",txt:"⏳ sell <"+fmtDur(Math.max(0.5,Math.floor((hit-0.5)*2)/2)),col:"var(--gold)"};
-  else if(big(st.due))r={k:"dip",txt:"🎯 dip · wait",col:"var(--blue)"};
-  else if(!dem&&!st.lst)r={k:"quiet",txt:"· quiet",col:"var(--mut2)"};
-  else if(st.net>0.3*dem)r={k:"glut",txt:"▼ glut · sell",col:"var(--red)"};
-  else if(st.net<-0.3*dem)r={k:"scarce",txt:"▲ scarce · hold",col:"var(--green)"};
-  else r={k:"ok",txt:"✓ balanced",col:"var(--green)"};
+  else if(big(st.due))r={k:"dip",txt:"⬇ falling · wait",col:"var(--blue)"};
+  else if(!dem&&!st.lst)r={k:"quiet",txt:"· no trades",col:"var(--mut2)"};
+  else if(st.net>0.3*dem)r={k:"glut",txt:"▼ piling up · sell",col:"var(--red)"};
+  else if(st.net<-0.3*dem)r={k:"scarce",txt:"▲ selling out",col:"var(--green)"};
+  else r={k:"ok",txt:"✓ steady",col:"var(--green)"};
   r.tip=tip;return r;}
 // tapping a stone row (Stones or Wave table) opens its numbers inline — phones have no hover tooltips
 function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();renderWaves();}
@@ -501,10 +503,10 @@ function renderWaves(){const el=$("waveBody");if(!el)return;const S=ST.stats;if(
     return `<tr${dim?' class="pempty"':''} onclick="rowTap(${i})"><td class=nm><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut)'}">${sg?sg.txt:'–'}</div></div></td>`
       +c(st.nw?'+'+fmtDur(st.nw.t):'<span class=muted>–</span>',st.nw?fmtK(st.nw.ex)+' extra':'',st.nw&&sg&&(sg.k==='now'||sg.k==='by')?sg.col:'')
       +c(st.S2>=1?fmtK(st.S2):'<span class=muted>–</span>',st.S2>=1?(dem?Math.round(hb*100)+'% buys':'no buyers'):'',st.S2>=1?hbCol:'',st.S2>=1?hbCol:'')
-      +c((st.lst||dem||st.cnl)?(st.net>=0?'+':'−')+fmtK(Math.abs(st.net))+'/h':'<span class=muted>–</span>',au?fmtK(an)+' near ask':'',netCol)
-      +c(fmtDur(st.lag),'r '+st.lagR.toFixed(2),'',st.lagR<0.2?'var(--mut2)':'')
-      +c(isNaN(st.dPct)?'<span class=muted>–</span>':(st.dPct>=0?'+':'')+Math.round(st.dPct*100)+'%',isNaN(st.dPct)?'':'n'+st.n+(st.n<3?' ≈':''),isNaN(st.dPct)?'':(st.dPct<-0.05?'var(--red)':st.dPct>0.05?'var(--green)':''),st.n<3?'var(--mut2)':'')+'</tr>'+detRow(i,6);}).join("");
-  el.innerHTML='<table id="waveTbl"><colgroup><col style="width:86px"><col style="width:46px"><col style="width:52px"><col style="width:58px"><col style="width:34px"><col style="width:44px"></colgroup><thead><tr><th>Stone<br>signal</th><th class=n title="biggest upcoming 30-min ripening burst in the next 8h: when · units above the recent norm">Burst<br>extra</th><th class=n title="units ripening planet-wide in the next 2h · the share that gets listed, as % of what buyers take in 2h">Next 2h<br>vs buys</th><th class=n title="net growth of the ask side per hour (listed − cancelled − bought, last 2h) · units listed within +10% of the lowest ask">Book<br>near ask</th><th class=n title="how long after ripening sellers actually list (ripening→listing correlation, past 24h); r = strength">Lag<br>r</th><th class=n title="median price 2h after vs 1h before past bursts, minus the market trend · n = bursts measured (≈ = too few)">Past<br>Δ</th></tr></thead><tbody>'+rows+'</tbody></table>';}
+      +c((st.lst||dem||st.cnl)?(st.net>=0?'+':'−')+fmtK(Math.abs(st.net))+'/h':'<span class=muted>–</span>',au?fmtK(an)+' near low':'',netCol)
+      +c(fmtDur(st.lag),st.lagR>=0.4?'solid':st.lagR>=0.2?'weak':'guess','',st.lagR<0.2?'var(--mut2)':'')
+      +c(isNaN(st.dPct)?'<span class=muted>–</span>':(st.dPct>=0?'+':'')+Math.round(st.dPct*100)+'%',isNaN(st.dPct)?'':st.n+' spike'+(st.n===1?'':'s'),isNaN(st.dPct)?'':(st.dPct<-0.05?'var(--red)':st.dPct>0.05?'var(--green)':''),st.n<3?'var(--mut2)':'')+'</tr>'+detRow(i,6);}).join("");
+  el.innerHTML='<table id="waveTbl"><colgroup><col style="width:86px"><col style="width:46px"><col style="width:52px"><col style="width:58px"><col style="width:34px"><col style="width:44px"></colgroup><thead><tr><th>Stone<br>signal</th><th class=n title="biggest ripening spike in the next 8h: when, and how many units more than usual">Spike<br>extra</th><th class=n title="units ripening planet-wide in the next 2h · the part that gets listed, as % of what buyers take in 2h">Next 2h<br>vs buys</th><th class=n title="how fast the pile for sale grows (+) or shrinks (−) per hour · units listed near the lowest price">For sale<br>change/h</th><th class=n title="how long after ripening sellers list, and how sure the data is">Sell delay<br>sure?</th><th class=n title="price 2h after past spikes vs 1h before, market trend removed">After<br>spike</th></tr></thead><tbody>'+rows+'</tbody></table>';}
 // one row per stone: a 5-min-bucket histogram of expected units ripening across the planet over the next 8h (per-row scaled)
 function renderProd(){
   const body=$("prodBody");if(!body)return;
@@ -949,20 +951,21 @@ function renderOpt(){const el=$("optVerdict"),tb=$("optTbl");if(!el||!tb)return;
   $("optAsk").classList.toggle("on",!OPT.bid);$("optBid").classList.toggle("on",OPT.bid);
   if(!mkt||!ST.addr){el.innerHTML='<div class="sub">loading market…</div>';tb.innerHTML='';return;}
   const P=optPlan(),per=P.per,bestSlot=per.reduce((a,b)=>b.ph>a.ph?b:a,per[0]),bestCap=per.reduce((a,b)=>b.phk>a.phk?b:a,per[0]);
-  tb.innerHTML='<thead><tr><th>Rig</th><th class=n title="DRILL minted + ore ('+(OPT.bid?'bid':'ask')+' −5% fee) − cost, per rig">Net/rig</th><th class=n title="net DRILL per hour per slot (slot busy max(rig time, re-plant interval))">/h·slot</th><th class=n title="net DRILL per hour per 1,000 DRILL locked">/h·1k</th><th class=n title="rigs in the plan">Plan</th></tr></thead><tbody>'
+  tb.innerHTML='<thead><tr><th>Rig</th><th class=n title="DRILL you get back beyond the rig cost: minted DRILL + ore ('+(OPT.bid?'dumped':'sold at price')+', −5% fee), per rig">Profit<br>/ rig</th><th class=n title="profit per hour per rig slot (100 slots max; a slot is busy for the rig time or your re-plant interval, whichever is longer)">Profit /h<br>per slot</th><th class=n title="profit per hour per 1,000 DRILL spent on rigs">Profit /h<br>per 1k</th><th class=n title="rigs to plant now">Plant<br>now</th></tr></thead><tbody>'
     +per.map(p=>{const nP=(P.mix.mix.find(m=>m.p===p)||{n:0}).n,bs=p===bestSlot,bc=p===bestCap;
       return `<tr${bs?' style="background:#171008"':''}><td>${p.t.n}${bs?' <span class=gold title="best per slot">◄</span>':''}${bc?' <span class=grn title="best per DRILL">$</span>':''}</td><td class="n ${p.net>=0?'grn':'red'}">${p.net>=0?'+':''}${fmt(p.net)}</td><td class="n ${p.ph>=0?'grn':'red'}">${p.ph>=0?'+':''}${fmt(p.ph)}</td><td class="n ${p.phk>=0?'':'red'}">${fmt(p.phk)}</td><td class=n>${nP?'<b>'+nP+'</b>':'<span class=muted>–</span>'}</td></tr>`;}).join("")+'</tbody>';
   let v='';
   if(P.slots<=0)v+='<div><span class="red">Rig cap '+ST.active+'/'+RIGCAP+'</span>'+(ST.ready?' · '+ST.ready+' ready to collect':'')+'</div>';
   else if(!P.mix.mix.length)v+='<div class="red">'+(P.D<Math.min(...TIERS.map(t=>t.c))?'Not enough DRILL (min 50)':'No rig is DRILL-positive at these prices')+'</div>';
   else{v+='<div><b>Now:</b> '+mixStr(P.mix.mix)+' <span class="sub">('+fmt(P.cost)+' DRILL)</span></div>';
-    v+='<div style="font-size:20px;font-weight:700;margin:1px 0"><span class="'+(P.phA>=0?'grn':'red')+'">'+(P.phA>=0?'+':'')+fmt(P.phA)+'</span><small class="sub">/h ask</small> · <span class="'+(P.phB>=0?'grn':'red')+'">'+(P.phB>=0?'+':'')+fmt(P.phB)+'</span><small class="sub">/h bid</small></div>';
-    v+='<div class="sub">slots '+P.rigs.length+'/'+P.slots+' · '+(P.ownUsed?lvHist(P.own.slice(0,P.ownUsed).map(p=>p.level))+' yours':'')+(P.extUsed?(P.ownUsed?' + ':'')+P.extUsed+' others’':'')+' · bonus +'+fmt(P.bonusPH,1)+'/h</div>';}
-  if(P.grad)v+='<div class="sub">📈 ≥ '+fmtK(P.grad.D)+' DRILL → <b>'+P.grad.t+'</b></div>';
-  if(P.fleet.mix.length)v+='<div class="sub">🎯 '+RIGCAP+' slots: <b>'+mixStr(P.fleet.mix)+'</b> → <span class="grn">+'+fmt(P.fleet.val)+'/h</span></div>';
+    v+='<div style="font-size:20px;font-weight:700;margin:1px 0"><span class="'+(P.phA>=0?'grn':'red')+'">'+(P.phA>=0?'+':'')+fmt(P.phA)+'</span><small class="sub"> DRILL/h if ore sells at price</small></div>';
+    v+='<div style="font-size:15px;font-weight:700;margin:0 0 2px"><span class="'+(P.phB>=0?'grn':'red')+'">'+(P.phB>=0?'+':'')+fmt(P.phB)+'</span><small class="sub"> DRILL/h if ore is dumped</small></div>';
+    v+='<div class="sub">'+P.rigs.length+' of '+P.slots+' open slots · '+(P.ownUsed?lvHist(P.own.slice(0,P.ownUsed).map(p=>p.level))+' yours':'')+(P.extUsed?(P.ownUsed?' + ':'')+P.extUsed+' on others’ plots':'')+' · owner bonus +'+fmt(P.bonusPH,1)+'/h</div>';}
+  if(P.grad)v+='<div class="sub">📈 with '+fmtK(P.grad.D)+'+ DRILL, switch to <b>'+P.grad.t+'</b></div>';
+  if(P.fleet.mix.length)v+='<div class="sub">🎯 all '+RIGCAP+' slots: <b>'+mixStr(P.fleet.mix)+'</b> = <span class="grn">+'+fmt(P.fleet.val)+'/h</span></div>';
   // sell-through warning only when your planned output is a big share of what the market buys per hour
   if(ST.stats&&P.rigs.length){const st=STONE.map((s,i)=>{if(DUST(i)||P.out[i]<0.5)return null;const d=ST.stats[i].dem||ST.stats[i].dem24;return{n:s[0],r:d?P.out[i]/d:Infinity};}).filter(x=>x&&x.r>=0.3).sort((a,b)=>b.r-a.r).slice(0,4);
-    if(st.length)v+='<div class="sub">⚠ your output vs buys/h: '+st.map(x=>'<span class="'+(x.r>1?'red':'gold')+'">'+x.n+' '+(isFinite(x.r)?Math.round(x.r*100)+'%':'no buyers')+'</span>').join(' · ')+'</div>';}
+    if(st.length)v+='<div class="sub">⚠ you’d produce, vs what buyers take per hour: '+st.map(x=>'<span class="'+(x.r>1?'red':'gold')+'">'+x.n+' '+(isFinite(x.r)?Math.round(x.r*100)+'%':'no buyers')+'</span>').join(' · ')+'</div>';}
   el.innerHTML=v;}
 // ---- wire ----
 try{const s=localStorage.getItem("mars_rpc");if(s)$("rpc").value=s;}catch(e){}
