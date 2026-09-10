@@ -376,7 +376,7 @@ async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- auto-ladder: spread a stone's forced 99-lots up a geometric price curve (free — same tx count as one wall) ----
-const LADDER_STEP=0.04,LADDER_CAP=1.0,LADDER_TOL=0.08; // +4%/rung, capped at +100% total; re-ladder when the front drifts >8%
+const LADDER_STEP=0.04,LADDER_CAP=1.0,LADDER_TOL=0.08,KEEP_TOL=0.02; // +4%/rung, capped +100%; re-ladder at >8% drift; on re-ladder keep any rung already within 2% of its target
 function ladMult(L,k){if(L<=1)return 1;const t=Math.min(Math.pow(1+LADDER_STEP,L-1),1+LADDER_CAP);return Math.pow(t,k/(L-1));}
 function ladLots(stone,qty,frontWei){const L=Math.ceil(qty/99),out=[];let rem=qty,k=0;while(rem>0){const a=Math.min(99,rem);rem-=a;out.push({stone,amount:a,price:frontWei*BigInt(Math.round(ladMult(L,k)*1e6))/1000000n});k++;}return out;}
 // pack lots of possibly-different stones into listings of <=5 distinct stones (same stone never repeats within one listing)
@@ -415,9 +415,12 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
   const total=(ST.stones[i]||0)+listedPure;   // ladder held + my pure-i listings; bundles stay as they are
   if(!total){set("s-err","No free "+STONE[i][0]+" to ladder"+(bundled?" (only bundled listings).":"."));return;}
   const lots=ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
-  // diff: keep any pure-i listing whose (amount,price) already equals a desired rung; cancel the rest; list only uncovered rungs.
+  // diff: keep any pure-i listing already NEAR a desired rung (same size, price within KEEP_TOL) so a market move only
+  // adds/removes rungs at the ends instead of re-pricing the whole ladder; cancel the rest, list only uncovered rungs.
   const want=lots.map(l=>({amount:l.amount,price:l.price,done:false})),keep=new Set();
-  for(const L of pureI){const lot=L.lots[0],m=want.find(w=>!w.done&&w.amount===lot.amount&&w.price===lot.priceWei);if(m){m.done=true;keep.add(L.id);}}
+  for(const L of [...pureI].sort((a,b)=>a.lots[0].priceWei<b.lots[0].priceWei?-1:a.lots[0].priceWei>b.lots[0].priceWei?1:0)){const lot=L.lots[0];let best=-1,bd=KEEP_TOL;
+    for(let j=0;j<want.length;j++){const wj=want[j];if(wj.done||wj.amount!==lot.amount)continue;const r=Math.abs(Number(lot.priceWei)/Number(wj.price)-1);if(r<=bd){bd=r;best=j;}}
+    if(best>=0){want[best].done=true;keep.add(L.id);}}
   const toCancel=pureI.filter(L=>!keep.has(L.id)),toList=want.filter(w=>!w.done);
   if(!toCancel.length&&!toList.length){set("s-ok",STONE[i][0]+" ladder already at the market — nothing to do ✓");return;}
   const nTx=toCancel.length+toList.length;
