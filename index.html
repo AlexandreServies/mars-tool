@@ -52,6 +52,15 @@
   .stk .b{font-weight:600}
   .stk .s{font-size:8.5px;color:var(--mut);letter-spacing:-.02em}
   @media(max-width:440px){.wrap{padding-left:8px;padding-right:8px}.card{padding-left:9px;padding-right:9px}}
+  .paxis{display:flex;align-items:center;gap:6px;margin:0 0 4px}
+  .paxis .pnm{flex:0 0 76px}
+  .paxis .pbar{flex:1;display:flex;justify-content:space-between;font-size:8px;color:var(--mut2);letter-spacing:-.03em}
+  .paxis .ptot{flex:0 0 38px;text-align:right;font-size:8px;color:var(--mut2);text-transform:uppercase;letter-spacing:.03em}
+  .prow{display:flex;align-items:center;gap:6px;height:23px;border-top:1px solid #211c19}
+  .prow .pnm{flex:0 0 76px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+  .prow .pbar{flex:1;min-width:0}.prow .pbar svg{width:100%;height:20px;display:block}
+  .prow .ptot{flex:0 0 38px;text-align:right;font-size:11px;font-weight:600}
+  .pempty{opacity:.42}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
   .t-open{background:#12341f;color:var(--green)}.t-closed{background:#25211d;color:var(--mut)}
   .t-busy{background:#3a1c16;color:var(--drill)}.t-idle{background:#1a2733;color:var(--blue)}
@@ -147,6 +156,12 @@
     </div>
   </div>
 
+  <div class="card" id="prodCard" hidden>
+    <h2>Production timeline <span class="r">planet · 5m · 8h</span></h2>
+    <div class="paxis"><span class="pnm"></span><span class="pbar"><span>now</span><span>+2h</span><span>+4h</span><span>+6h</span><span>8h</span></span><span class="ptot">Σ8h</span></div>
+    <div id="prodBody"></div>
+  </div>
+
   <div class="card" id="xferCard" hidden>
     <h2>Transfer stones <span class="r">send materials to any address</span></h2>
     <div class="btnrow">
@@ -203,8 +218,15 @@ const SLUSH={name:"Slush",color:"#bcdff0"},SLUSH_TOPIC="0xb84b22c2894f3711d7a02a
 // market Sale(listingId, buyer, seller, uint256[] ids, uint256[] amounts, uint256 price, uint256 fee) — sum amounts by
 // stone id over the last ~hour of blocks (~0.1s/block => ~36k blocks) for a per-ore "bought last hour" activity readout.
 const MARKET_SALE_TOPIC="0x17e423416cad1211973fa428a9df1394109e696b7ba70357a88a7ef1e181d64d",BLOCKS_1H=36000;
+// planet-wide rig deploy event: topics [sig, player, parcel, nonce], data [readyAt(s), durationSeconds].
+// durationSeconds is unique per tier, so it maps straight to the TIERS index; readyAt says when the rig ripens.
+const DEPLOY_TOPIC="0x321431a3f8c3ed9d49a8ea13b0fe9e35db349ce681d40e3dbd9770ba74a4e214";
+const DUR2TIER={1800:0,3600:1,7200:2,14400:3,28800:4};
+const PROD_H=8,PROD_NB=96,BLOCKS_8H=Math.round(8.5*3600/0.101); // 8h horizon, 5-min buckets, ~8.5h block window (0.101s/block)
+// stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
+const DUST=i=>i<2;
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
-const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(i?STONE[i][1]:0),0); // catalog reference value (Sand Rock counted as 0)
+const rigEV=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(DUST(i)?0:STONE[i][1]),0); // catalog reference value (Sand Rock + Rust counted as 0)
 // per-stone DRILL payout schedule (millionths of rig cost per occurrence), by tier — the on-chain "base find"
 const JZ=[null,[5316,10632,21266,42532,63798,127594,0,0,0,0,0,0],[2490,4981,9962,19923,29885,59771,149426,0,0,0,0,0],[1166,2330,4660,9322,13982,27967,69914,139831,279662,0,0,0],[0,1038,2078,4156,6234,12468,31168,62338,124676,259740,0,0],[0,0,999,2001,3000,6000,15000,30000,60000,125001,399999,2499999]];
 // base find = DRILL minted to you on collect (verified on-chain ≈ 0.96× cost every tier)
@@ -212,12 +234,12 @@ const rigDrill=t=>t.tray*t.odds.reduce((a,o,i)=>a+(o/1e4)*(JZ[t.t][i]/1e6),0)*t.
 // resale value per stone (DRILL) = lowest live ASK (the going price buyers market-buy at); best bid only
 // as a fallback when nothing is listed. No cap — a listing is a listing.
 const oreMkt=i=>{const a=(ST.ask&&ST.ask[i])||0;return a||((ST.bid&&ST.bid[i])||0);};
-const rigEVmkt=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(i?oreMkt(i):0),0); // Sand Rock counted as 0
+const rigEVmkt=t=>t.tray*t.odds.reduce((a,o,i)=>a+o/1e4*(DUST(i)?0:oreMkt(i)),0); // Sand Rock + Rust counted as 0
 const mktReady=()=>!!(ST.bid&&ST.ask&&(ST.bid.some(x=>x>0)||ST.ask.some(x=>x>0)));
 const fmtDur=h=>h<1?Math.round(h*60)+"m":(h%1?Math.floor(h)+"h"+Math.round(h%1*60):h+"h");
 const words=h=>{h=(h||"").replace(/^0x/,"");const o=[];for(let i=0;i<h.length;i+=64)o.push(h.slice(i,i+64));return o;};
 const MAXLVL=20;
-let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,act:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
+let ST={addr:"",canSign:false,plots:[],free:[0,0,0,0,0],drill:0,stones:Array(12).fill(0),slush:null,act:null,deploys:[],depHead:null,totalWeight:0,myWeight:0,active:0,rigs:[],ready:0,nextAt:0,allow:0n,bid:null,ask:null,drillEth:0,book:[],mktAllow:0n,weightScale:100};
 let WALLET=null,PROVIDER=null,NONCE=null,COST={}; // WALLET=ethers signer, NONCE tracked locally for fast sequential txs
 
 const log=m=>{const e=$("log");e.textContent=(e.textContent==="—"?"":e.textContent+"\n")+m;e.scrollTop=1e6;};
@@ -343,19 +365,52 @@ async function marketActivity(){
 let lastAct=0;
 function actRefresh(){if(Date.now()-lastAct<30000&&ST.act)return;lastAct=Date.now();
   marketActivity().then(a=>{ST.act=a;renderStones();}).catch(()=>{});}
+// planet-wide upcoming production: scan rig-deploy events -> each rig's {readyAt, tier}. Cache the last ~8h ONCE,
+// then only pull the new blocks since last scan on each refresh; ripened rigs are pruned client-side.
+async function scanDeploys(fromBlk,toBlk){
+  const CH=9000,one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[DEPLOY_TOPIC]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,250));return one(f,t,tr-1);}return [];}};
+  const R=[];for(let b=fromBlk;b<=toBlk;b+=CH)R.push([b,Math.min(b+CH-1,toBlk)]);
+  const out=[],PAR=8;
+  for(let i=0;i<R.length;i+=PAR){const res=await Promise.all(R.slice(i,i+PAR).map(([f,t])=>one(f,t,3)));
+    for(const r of res)if(Array.isArray(r))for(const lg of r){const d=(lg.data||"").replace(/^0x/,"");if(d.length<128)continue;const ready=parseInt(d.slice(0,64),16)*1000,tier=DUR2TIER[parseInt(d.slice(64,128),16)];if(tier!==undefined)out.push({ready,tier});}}
+  return out;
+}
+let prodBusy=false;
+async function prodRefresh(){
+  if(prodBusy)return;prodBusy=true;
+  try{
+    const head=parseInt(await rpc("eth_blockNumber",[]),16);
+    if(ST.depHead==null){ST.deploys=await scanDeploys(Math.max(DEPLOY_BLOCK,head-BLOCKS_8H),head);ST.depHead=head;}
+    else if(head>ST.depHead){const nu=await scanDeploys(ST.depHead+1,head);if(nu.length)ST.deploys=ST.deploys.concat(nu);ST.depHead=head;}
+    const now=Date.now();ST.deploys=(ST.deploys||[]).filter(x=>x.ready>now);   // drop ripened -> cache stays bounded to the next 8h
+    renderProd();
+  }catch(e){}finally{prodBusy=false;}
+}
+// one row per stone: a 5-min-bucket histogram of expected units ripening across the planet over the next 8h (per-row scaled)
+function renderProd(){
+  const body=$("prodBody");if(!body)return;
+  const NB=PROD_NB,H=PROD_H,bw=H/NB,now=Date.now(),grid=Array.from({length:12},()=>Array(NB).fill(0));
+  for(const dp of (ST.deploys||[])){const hr=(dp.ready-now)/3.6e6;if(hr<=0||hr>H)continue;const bi=Math.min(NB-1,Math.floor(hr/bw)),t=TIERS[dp.tier];if(!t)continue;for(let s=0;s<12;s++)grid[s][bi]+=t.tray*t.odds[s]/1e4;}
+  const loading=ST.depHead==null;
+  body.innerHTML=STONE.map((s,i)=>{const g=grid[i],mx=Math.max(...g,1e-9),T=g.reduce((a,b)=>a+b,0);
+    if(T<1)return `<div class="prow pempty"><span class="pnm"><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><span class="pbar"></span><span class="ptot muted">${loading?'…':'–'}</span></div>`;
+    const bars=g.map((v,bi)=>{if(v<=0)return"";const in_=v/mx,h=Math.max(1.2,in_*17),x=bi*(100/NB);return `<rect x="${x.toFixed(2)}" y="${(18-h).toFixed(2)}" width="${(100/NB).toFixed(2)}" height="${h.toFixed(2)}" fill="${s[2]}" opacity="${(0.3+0.7*in_).toFixed(2)}"/>`;}).join("");
+    return `<div class="prow"><span class="pnm"><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><span class="pbar"><svg viewBox="0 0 100 18" preserveAspectRatio="none">${bars}</svg></span><span class="ptot" title="${fmt(Math.round(T))} ${s[0]} ripening across the planet in the next 8h">${fmtK(T)}</span></div>`;}).join("");
+}
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=false;renderRig();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=false;renderRig();renderProd();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   actRefresh();          // market activity (value/units/buys + trend), throttled to 30s
+  prodRefresh();         // planet production timeline: 8h scan cached once, then incremental new-block scan
   const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   let hx=freeRaw.replace(/^0x/,""),ws=[];for(let i=0;i<hx.length;i+=64)ws.push(hx.slice(i,i+64));
   ST.free=(ws.length>=7&&parseInt(ws[0],16)===32&&parseInt(ws[1],16)===5?ws.slice(2,7):ws.slice(0,5)).map(x=>parseInt(x||"0",16));
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
   $("mFree").textContent=ST.free.reduce((a,b)=>a+b,0);$("mFreeX").textContent=ST.free.map((n,i)=>n>0?n+"×"+TIERS[i].n[0]:"").filter(Boolean).join(" ");
-  const sv=ST.stones.reduce((a,n,i)=>a+n*(i?STONE[i][1]:0),0);$("mStoneVal").textContent=fmt(sv);renderStones();
+  const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
@@ -579,7 +634,7 @@ async function sendAllStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.inn
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
   if($("mDrillX"))$("mDrillX").textContent=e?"≈ "+fmt(ST.drill*e,3)+" ETH":"";
-  const sv=ST.stones.reduce((a,n,i)=>a+n*(i?oreMkt(i):0),0);if($("mStoneVal"))$("mStoneVal").textContent=fmt(sv);
+  const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:oreMkt(i)),0);if($("mStoneVal"))$("mStoneVal").textContent=fmt(sv);
   if($("mStoneValX"))$("mStoneValX").textContent=e&&sv?"≈ "+fmt(sv*e,3)+" ETH":(mktReady()?"DRILL":"");}
 function stonesEnough(lvl){const c=COST[lvl];if(!c)return null;return c.ids.every((id,k)=>ST.stones[id]>=c.amts[k]);}
 function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=>c.amts[k]+"×"+STONE[id][0]).join(", ");}
