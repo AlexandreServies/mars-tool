@@ -64,6 +64,7 @@
   #waveTbl{font-size:11px;table-layout:fixed}#waveTbl th,#waveTbl td{padding:3px 4px;overflow:hidden}#waveTbl th{font-size:8.5px;line-height:1.1}#waveTbl .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#waveTbl .swatch{width:7px;height:7px;margin-right:3px}
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.seg button{background:var(--panel2);color:var(--mut);border:0;border-radius:0;padding:3px 9px;font-size:11px}.seg button.on{background:var(--drill);color:#1a0f08}
   #optTbl{font-size:11.5px}#optTbl th,#optTbl td{padding:3px 5px}
+  #rigsTbl{font-size:11.5px}#rigsTbl th,#rigsTbl td{padding:3px 5px}
   .chip{font-size:8.5px;font-weight:600;letter-spacing:-.01em}
   tr.det td{font-size:9.5px;color:var(--mut);white-space:normal;line-height:1.35;padding:3px 6px 5px;background:#120f0e}
   #stoneTbl td.nm,#waveTbl tr{cursor:pointer}
@@ -170,6 +171,11 @@
     </div>
     <div id="optVerdict" class="stat" style="margin-bottom:6px"></div>
     <table id="optTbl"></table>
+  </div>
+
+  <div class="card" id="rigsCard" hidden>
+    <h2>Active rigs <span class="r">running now · you vs planet</span></h2>
+    <table id="rigsTbl"></table>
   </div>
 
   <div class="card" id="prodCard" hidden>
@@ -445,7 +451,7 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
     const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 30h of ripenings (past+future) and market rows
     h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
     ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1]}));ST.depHead=h.head;
-    histSave(false);histStats();renderProd();renderStones();renderWaves();renderOpt();
+    histSave(false);histStats();renderProd();renderRigs();renderStones();renderWaves();renderOpt();
   }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
 // ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
 const med=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;};
@@ -516,6 +522,16 @@ function renderWaves(){const el=$("waveBody");if(!el)return;const S=ST.stats;if(
       +c(fmtDur(st.lag),st.lagR>=0.4?'solid':st.lagR>=0.2?'weak':'guess','',st.lagR<0.2?'var(--mut2)':'')
       +c(isNaN(st.dPct)?'<span class=muted>–</span>':(st.dPct>=0?'+':'')+Math.round(st.dPct*100)+'%',isNaN(st.dPct)?'':st.n+' spike'+(st.n===1?'':'s'),isNaN(st.dPct)?'':(st.dPct<-0.05?'var(--red)':st.dPct>0.05?'var(--green)':''),st.n<3?'var(--mut2)':'')+'</tr>'+detRow(i,6);}).join("");
   el.innerHTML='<table id="waveTbl"><colgroup><col style="width:86px"><col style="width:46px"><col style="width:52px"><col style="width:58px"><col style="width:34px"><col style="width:44px"></colgroup><thead><tr><th>Stone<br>signal</th><th class=n title="biggest ripening spike in the next 8h: when, and how many units more than usual">Spike<br>extra</th><th class=n title="units ripening planet-wide in the next 2h · the part that gets listed, as % of what buyers take in 2h">Next 2h<br>vs buys</th><th class=n title="how fast the pile for sale grows (+) or shrinks (−) per hour · units listed near the lowest price">For sale<br>change/h</th><th class=n title="how long after ripening sellers list, and how sure the data is">Sell delay<br>sure?</th><th class=n title="price 2h after past spikes vs 1h before, market trend removed">After<br>spike</th></tr></thead><tbody>'+rows+'</tbody></table>';}
+// active rigs per type: yours from the site contract (tier field 1-based, verified) vs planet-wide from the deploy cache
+// (a rig whose ripening time is still ahead is running); +1h = rigs planted planet-wide in the last hour
+function renderRigs(){const tb=$("rigsTbl");if(!tb)return;const now=Date.now(),loading=ST.depHead==null;
+  const mine=Array(5).fill(0);(ST.rigs||[]).forEach(r=>{if(r.tier>=1&&r.tier<=5)mine[r.tier-1]++;});
+  const planet=Array(5).fill(0),h1=Array(5).fill(0);
+  for(const dp of (ST.deploys||[])){const t=TIERS[dp.tier];if(!t)continue;if(dp.ready>now)planet[dp.tier]++;const planted=dp.ready-t.h*3.6e6;if(planted>now-3.6e6&&planted<=now)h1[dp.tier]++;}
+  const sum=a=>a.reduce((x,y)=>x+y,0),mm=sum(mine),pm=sum(planet),hm=sum(h1),n=v=>loading?'…':fmt(v),sh=(a,b)=>a&&b?(100*a/b).toFixed(1)+'%':'<span class=muted>–</span>';
+  tb.innerHTML='<thead><tr><th>Rig</th><th class=n title="your rigs running now">Yours</th><th class=n title="rigs running planet-wide right now">Planet</th><th class=n title="your share of the planet\'s running rigs">Share</th><th class=n title="planted planet-wide in the last hour">+1h</th></tr></thead><tbody>'
+    +TIERS.map((t,i)=>`<tr><td>${t.n}</td><td class=n>${mine[i]?'<b>'+mine[i]+'</b>':'<span class=muted>–</span>'}</td><td class=n>${n(planet[i])}</td><td class=n>${loading?'…':sh(mine[i],planet[i])}</td><td class=n>${n(h1[i])}</td></tr>`).join("")
+    +`<tr style="font-weight:600;border-top:1px solid var(--mut2)"><td>All</td><td class=n>${mm}</td><td class=n>${n(pm)}</td><td class=n>${loading?'…':sh(mm,pm)}</td><td class=n>${n(hm)}</td></tr></tbody>`;}
 // one row per stone: a 5-min-bucket histogram of expected units ripening across the planet over the next 8h (per-row scaled)
 function renderProd(){
   const body=$("prodBody");if(!body)return;
@@ -529,7 +545,7 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=false;renderRig();renderProd();renderWaves();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=false;renderRig();renderProd();renderWaves();renderRigs();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
@@ -559,7 +575,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
-  renderPort();renderDeploy();renderRig();renderStones();fillUpSel();loadCosts().then(fillUpSel);
+  renderPort();renderDeploy();renderRig();renderRigs();renderStones();fillUpSel();loadCosts().then(fillUpSel);
   await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();
   if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
