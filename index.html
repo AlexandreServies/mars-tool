@@ -627,8 +627,8 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false;
       if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=rungs(tot),fN=Number(desF)/1e18,mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
         const flat=(mtN/mfN-1)<=FLAT_TOL,desTop=flat?fN:fN*ladMult(L,L-1);   // measure drift against the shape I have (bulk vs ladder)
-        const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;showAdj=fD>LADDER_TOL||tD>LADDER_TOL;}
-      if(showAdj)act+=`<button class="mini b" onclick="adjustStone(${i})" title="Adjust ${s[0]} to the ask (keeps flat or ladder)">🔄</button>`;}
+        const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;showAdj=fD>LADDER_TOL||tD>LADDER_TOL||myFront[i]>=ST.askWei[i];}   // drifted, or undercut (no longer the cheapest)
+      if(showAdj)act+=`<button class="mini b" onclick="adjustStone(${i})" title="${myFront[i]!==null&&myFront[i]>=ST.askWei[i]?'Undercut — move your front lot back under the cheapest seller':'Adjust '+s[0]+' to the ask (keeps flat or ladder)'}">🔄</button>`;}
     if(lst>0)act+=`<button class="mini r" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
     if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
     // 1h activity: DRILL value traded (primary) + trend arrow vs prior hour, with units·buys underneath
@@ -703,9 +703,7 @@ async function listAllStone(i,flat){const out=$("stoneOut"),set=(c,m)=>{if(out)o
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- adjust a single-stone position to the current market, keeping the shape you already have (flat bulk vs ladder) ----
-async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
-  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
-  const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No liquid ask to undercut on "+STONE[i][0]+".");return;}
+function adjustPlan(i){const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n)return{err:"No liquid ask to undercut on "+STONE[i][0]+"."};
   const front=aw-1n;
   // only touch listings that are PURELY this stone — those are the ladder rungs. A bundled listing (stone i
   // sharing a listing with other stones) is left alone: cancelling it would drop the other stones too.
@@ -713,19 +711,29 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
   const bundled=(ST.book||[]).some(L=>L.mine&&(L.lots||[]).length>1&&(L.lots||[]).some(l=>l.stone===i));
   const listedPure=pureI.reduce((s,L)=>s+L.lots[0].amount,0);
   const total=(ST.stones[i]||0)+listedPure;   // ladder held + my pure-i listings; bundles stay as they are
-  if(!total){set("s-err","No free "+STONE[i][0]+" to ladder"+(bundled?" (only bundled listings).":"."));return;}
+  if(!total)return{err:"No free "+STONE[i][0]+" to ladder"+(bundled?" (only bundled listings).":".")};
   // keep the shape I already have: if my listings all sit within FLAT_TOL of each other it's a bulk ask → re-list flat at
   // the ask; otherwise it's a ladder → re-ladder. Either way the same diff below keeps rungs already near their target.
   let pf=null,pt=null;for(const L of pureI){const p=L.lots[0].priceWei;if(pf===null||p<pf)pf=p;if(pt===null||p>pt)pt=p;}
   const flat=pf!==null&&(Number(pt)/Number(pf)-1)<=FLAT_TOL;
-  const lots=flat?flatLots(i,total,front):ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
+  const lots=flat?flatLots(i,total,front):ladLots(i,total,front);
   // diff: keep any pure-i listing already NEAR a desired rung (same size, price within KEEP_TOL) so a market move only
   // adds/removes rungs at the ends instead of re-pricing the whole ladder; cancel the rest, list only uncovered rungs.
-  const want=lots.map(l=>({amount:l.amount,price:l.price,done:false})),keep=new Set();
-  for(const L of [...pureI].sort((a,b)=>a.lots[0].priceWei<b.lots[0].priceWei?-1:a.lots[0].priceWei>b.lots[0].priceWei?1:0)){const lot=L.lots[0];let best=-1,bd=KEEP_TOL;
+  // "bought first" is decided by my cheapest lot only: if it sits at or above the other sellers' ask (undercut or tied),
+  // it is never kept — it gets re-listed 1 wei under them. Upper ladder rungs are meant to be above the ask and stay.
+  const want=lots.map(l=>({amount:l.amount,price:l.price,done:false})),keep=new Set();let forced=0;
+  const sorted=[...pureI].sort((a,b)=>a.lots[0].priceWei<b.lots[0].priceWei?-1:a.lots[0].priceWei>b.lots[0].priceWei?1:0);
+  for(let k=0;k<sorted.length;k++){const L=sorted[k],lot=L.lots[0];
+    if(k===0&&lot.priceWei>=aw){forced=1;continue;}
+    let best=-1,bd=KEEP_TOL;
     for(let j=0;j<want.length;j++){const wj=want[j];if(wj.done||wj.amount!==lot.amount)continue;const r=Math.abs(Number(lot.priceWei)/Number(wj.price)-1);if(r<=bd){bd=r;best=j;}}
     if(best>=0){want[best].done=true;keep.add(L.id);}}
   const toCancel=pureI.filter(L=>!keep.has(L.id)),toList=want.filter(w=>!w.done);
+  return{pureI,flat,lots,front,total,keep,toCancel,toList,forced};}
+async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
+  const P=adjustPlan(i);if(P.err){set("s-err",P.err);return;}
+  const {flat,lots,front,total,keep,toCancel,toList}=P,fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
   if(!toCancel.length&&!toList.length){set("s-ok",STONE[i][0]+(flat?" ask":" ladder")+" already at the market — nothing to do ✓");return;}
   const nTx=toCancel.length+toList.length;
   try{
