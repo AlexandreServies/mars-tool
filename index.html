@@ -402,9 +402,10 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
     let act='';if(a>0){if(n>0){act+=`<button class="mini g" onclick="listAllStone(${i},1)" title="List all ${s[0]} flat at the ask">🏷️</button>`;
       act+=`<button class="mini g" onclick="listAllStone(${i})" title="Ladder ${s[0]} up from the ask">🪜</button>`;}
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false;
-      if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
+      if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
+        const flat=(mtN/mfN-1)<=FLAT_TOL,desTop=flat?fN:fN*ladMult(L,L-1);   // measure drift against the shape I have (bulk vs ladder)
         const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;showAdj=fD>LADDER_TOL||tD>LADDER_TOL;}
-      if(showAdj)act+=`<button class="mini b" onclick="adjustStone(${i})" title="Adjust ${s[0]} ladder to market">🔄</button>`;}
+      if(showAdj)act+=`<button class="mini b" onclick="adjustStone(${i})" title="Adjust ${s[0]} to the ask (keeps flat or ladder)">🔄</button>`;}
     if(lst>0)act+=`<button class="mini r" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
     if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
     // 1h activity: DRILL value traded (primary) + trend arrow vs prior hour, with units·buys underneath
@@ -445,7 +446,7 @@ async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- auto-ladder: spread a stone's forced 99-lots up a geometric price curve (free — same tx count as one wall) ----
-const LADDER_STEP=0.04,LADDER_CAP=0.30,LADDER_TOL=0.08,KEEP_TOL=0.02; // +4%/rung, total spread capped at +30%; re-ladder at >8% drift; on re-ladder keep any rung already within 2% of its target
+const LADDER_STEP=0.04,LADDER_CAP=0.30,LADDER_TOL=0.08,KEEP_TOL=0.02,FLAT_TOL=0.03; // FLAT_TOL: my listings spanning ≤3% = a flat bulk ask (not a ladder) // +4%/rung, total spread capped at +30%; re-ladder at >8% drift; on re-ladder keep any rung already within 2% of its target
 function ladMult(L,k){if(L<=1)return 1;const t=Math.min(Math.pow(1+LADDER_STEP,L-1),1+LADDER_CAP);return Math.pow(t,k/(L-1));}
 function ladLots(stone,qty,frontWei){const L=Math.ceil(qty/99),out=[];let rem=qty,k=0;while(rem>0){const a=Math.min(99,rem);rem-=a;out.push({stone,amount:a,price:frontWei*BigInt(Math.round(ladMult(L,k)*1e6))/1000000n});k++;}return out;}
 // flat: every 99-lot at the same (front) price — a plain "list everything at the ask" instead of a rising ladder
@@ -473,7 +474,7 @@ async function listAllStone(i,flat){const out=$("stoneOut"),set=(c,m)=>{if(out)o
     set("s-ok",flat?("Listed "+fmt(qty)+" × "+STONE[i][0]+" @ "+fr.toFixed(d)+" — "+lots.length+" lot"+(lots.length>1?"s":"")+" ✓"):("Laddered "+fmt(qty)+" × "+STONE[i][0]+" over "+lots.length+" rungs ("+fr.toFixed(d)+"→"+top.toFixed(d)+") ✓"));
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// ---- re-ladder a single-stone position to the current market, keeping any rung that's already correct ----
+// ---- adjust a single-stone position to the current market, keeping the shape you already have (flat bulk vs ladder) ----
 async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
   const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No liquid ask to undercut on "+STONE[i][0]+".");return;}
@@ -485,7 +486,11 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
   const listedPure=pureI.reduce((s,L)=>s+L.lots[0].amount,0);
   const total=(ST.stones[i]||0)+listedPure;   // ladder held + my pure-i listings; bundles stay as they are
   if(!total){set("s-err","No free "+STONE[i][0]+" to ladder"+(bundled?" (only bundled listings).":"."));return;}
-  const lots=ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
+  // keep the shape I already have: if my listings all sit within FLAT_TOL of each other it's a bulk ask → re-list flat at
+  // the ask; otherwise it's a ladder → re-ladder. Either way the same diff below keeps rungs already near their target.
+  let pf=null,pt=null;for(const L of pureI){const p=L.lots[0].priceWei;if(pf===null||p<pf)pf=p;if(pt===null||p>pt)pt=p;}
+  const flat=pf!==null&&(Number(pt)/Number(pf)-1)<=FLAT_TOL;
+  const lots=flat?flatLots(i,total,front):ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
   // diff: keep any pure-i listing already NEAR a desired rung (same size, price within KEEP_TOL) so a market move only
   // adds/removes rungs at the ends instead of re-pricing the whole ladder; cancel the rest, list only uncovered rungs.
   const want=lots.map(l=>({amount:l.amount,price:l.price,done:false})),keep=new Set();
@@ -493,7 +498,7 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     for(let j=0;j<want.length;j++){const wj=want[j];if(wj.done||wj.amount!==lot.amount)continue;const r=Math.abs(Number(lot.priceWei)/Number(wj.price)-1);if(r<=bd){bd=r;best=j;}}
     if(best>=0){want[best].done=true;keep.add(L.id);}}
   const toCancel=pureI.filter(L=>!keep.has(L.id)),toList=want.filter(w=>!w.done);
-  if(!toCancel.length&&!toList.length){set("s-ok",STONE[i][0]+" ladder already at the market — nothing to do ✓");return;}
+  if(!toCancel.length&&!toList.length){set("s-ok",STONE[i][0]+(flat?" ask":" ladder")+" already at the market — nothing to do ✓");return;}
   const nTx=toCancel.length+toList.length;
   try{
     const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
@@ -501,12 +506,12 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     let done=0;
     for(const L of toCancel){const dta=S.cancelListing+w(L.id);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Re-laddering "+STONE[i][0]+" — cancel "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
+      set("s-wait",(flat?"Re-listing ":"Re-laddering ")+STONE[i][0]+" — cancel "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
     for(const wg of toList){const dta=encList([{id:i,amount:wg.amount,price:wg.price}]);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Re-laddering "+STONE[i][0]+" @ "+(Number(wg.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
+      set("s-wait",(flat?"Re-listing ":"Re-laddering ")+STONE[i][0]+" @ "+(Number(wg.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
     const kept=keep.size;
-    set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" ("+fr.toFixed(d)+"→"+top.toFixed(d)+")"+(kept?" · kept "+kept+" untouched":"")+" ✓");
+    set("s-ok",(flat?("Re-listed "+fmt(total)+" × "+STONE[i][0]+" @ "+fr.toFixed(d)):("Re-laddered "+fmt(total)+" × "+STONE[i][0]+" ("+fr.toFixed(d)+"→"+top.toFixed(d)+")"))+(kept?" · kept "+kept+" untouched":"")+" ✓");
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 // ---- delist: cancel every open listing of one stone (escrowed ore returns to my wallet) ----
