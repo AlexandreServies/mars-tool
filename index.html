@@ -25,6 +25,9 @@
   button.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
   button.ghost{background:transparent;color:var(--drill);border:1px solid var(--drill)}
   button.mini{padding:3px 8px;font-size:11px;border-radius:6px}
+  button.g{background:#17361f;border:1px solid #327a45;color:#a7e6bd}
+  button.b{background:#153140;border:1px solid #35708f;color:#a5d8ea}
+  button.r{background:#3a1712;border:1px solid #7a3529;color:#f2ac9d}
   button:active{transform:translateY(1px)}
   .btnrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
@@ -396,13 +399,13 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
   const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
   $("stoneTbl").innerHTML="<colgroup><col style='width:14px'><col style='width:84px'><col style='width:42px'><col style='width:38px'><col style='width:52px'><col></colgroup><thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n title='held in wallet / listed by you on the market'>Held<br>List</th><th class=n title='lowest ask / highest bid'>Ask<br>Bid</th><th class=n title='last hour across the market: DRILL value traded, ▲/▼ vs the hour before · units bought · number of buys'>1h $<br>u·n</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
-    let act='';if(a>0){if(n>0){act+=`<button class="mini sec" onclick="listAllStone(${i},1)" title="List all ${s[0]} flat at the ask">🏷️</button>`;
-      act+=`<button class="mini" onclick="listAllStone(${i})" title="Ladder ${s[0]} up from the ask">🪜</button>`;}
+    let act='';if(a>0){if(n>0){act+=`<button class="mini g" onclick="listAllStone(${i},1)" title="List all ${s[0]} flat at the ask">🏷️</button>`;
+      act+=`<button class="mini g" onclick="listAllStone(${i})" title="Ladder ${s[0]} up from the ask">🪜</button>`;}
       const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false;
       if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
         const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;showAdj=fD>LADDER_TOL||tD>LADDER_TOL;}
-      if(showAdj)act+=`<button class="mini sec" onclick="adjustStone(${i})" title="Adjust ${s[0]} ladder to market">🔄</button>`;}
-    if(lst>0)act+=`<button class="mini sec" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
+      if(showAdj)act+=`<button class="mini b" onclick="adjustStone(${i})" title="Adjust ${s[0]} ladder to market">🔄</button>`;}
+    if(lst>0)act+=`<button class="mini r" onclick="delistStone(${i})" title="Delist ${s[0]}">🗑️</button>`;
     if(!act&&(n>0||lst>0))act='<span class="muted" title="no liquid ask to undercut">—</span>';
     // 1h activity: DRILL value traded (primary) + trend arrow vs prior hour, with units·buys underneath
     let actCell='';
