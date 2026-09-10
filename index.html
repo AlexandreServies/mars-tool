@@ -125,16 +125,6 @@
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
       <h2>Stones <span class="r">held · listed · bid/ask DRILL</span></h2><table id="stoneTbl"></table><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
-      <details id="ladWrap" style="margin-top:8px"><summary>Ladder sell — spread a big position across price rungs</summary>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;font-size:12px">
-          <select id="ladStone" style="min-width:130px"></select>
-          <label>rungs <input id="ladN" class="mono" value="10" style="width:42px" inputmode="numeric"></label>
-          <label>from <input id="ladFront" class="mono" style="width:70px" inputmode="decimal"></label>
-          <label>to <input id="ladTop" class="mono" style="width:70px" inputmode="decimal"></label>
-          <button class="mini" id="ladBtn">Place ladder</button>
-        </div>
-        <div id="ladPreview" class="sub" style="margin-top:5px"></div>
-      </details>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -333,20 +323,24 @@ function renderRig(){const mkt=mktReady();const rows=TIERS.map(t=>{const drill=r
   $("rigTbl").innerHTML="<thead><tr><th>Rig</th><th class=n>Cost</th><th class=n>Time</th><th class=n title='DRILL minted on collect'>DRILL</th><th class=n title='ore resale value'>ore</th><th class=n>×</th><th class=n>/h</th></tr></thead><tbody>"+rows.map(({t,drill,ore,r,ph})=>`<tr${t===best.t?' style="background:#171008"':''}><td>${t.n}${t===best.t?' <span class="gold">◄</span>':''}</td><td class=n>${t.c}</td><td class=n>${fmtDur(t.h)}</td><td class=n>${fmt(drill)}</td><td class="n ${ore?'':'muted'}">${mkt?fmt(ore):'…'}</td><td class="n ${r>=1?'grn':'red'}">${r.toFixed(2)}</td><td class="n ${ph>=0?'grn':'red'}">${ph>=0?'+':''}${fmt(ph)}</td></tr>`).join("")+"</tbody>";
   if($("rigNote"))$("rigNote").innerHTML='Collect mints <b>DRILL ≈ 96% of cost</b> + the ore + a small owner/planter bonus. <span class="grn">Free rigs = pure profit</span> (~'+fmt(rigDrill(TIERS[2]))+' DRILL + ore per free Driller). Paid rigs ≈ break-even — the <b>ore is your margin</b>'+(mkt?', best on <b>'+best.t.n+'</b>':'')+'.';}
 function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set();
-  const offN=Array(12).fill(0),offQty=Array(12).fill(0);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;const aw=(ST.askWei&&ST.askWei[l.stone])||0n;if(aw>1n&&l.priceWei!==aw-1n){offN[l.stone]++;offQty[l.stone]+=l.amount;}});});  // count only the off-target listings — those are all Adjust touches
+  const myCnt=Array(12).fill(0),myFront=Array(12).fill(null),myTop=Array(12).fill(null);(ST.book||[]).forEach(L=>{if(!L.mine)return;(L.lots||[]).forEach(l=>{if(l.stone>=12)return;myCnt[l.stone]++;if(myFront[l.stone]===null||l.priceWei<myFront[l.stone])myFront[l.stone]=l.priceWei;if(myTop[l.stone]===null||l.priceWei>myTop[l.stone])myTop[l.stone]=l.priceWei;});});  // per stone: count, cheapest (front) + priciest (top) of my listings
   const canList=i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0),listable=STONE.map((_,i)=>i).filter(canList),allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));
   $("stoneTbl").innerHTML="<thead><tr><th class=n><input type=checkbox title='select all listable' onclick='toggleSelAll()'"+(allSel?" checked":"")+(listable.length?"":" disabled")+"></th><th>Stone</th><th class=n>Held</th><th class=n title='listed by you on the market'>Listed</th><th class=n>Bid</th><th class=n>Ask</th><th></th></tr></thead><tbody>"+STONE.map((s,i)=>{const n=ST.stones[i]||0,lst=(ST.myListed&&ST.myListed[i])||0,b=(ST.bid&&ST.bid[i])||0,a=(ST.ask&&ST.ask[i])||0,dec=a<1?4:a<100?2:0,nl=Math.ceil(n/99);
-    let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="List your ${fmt(n)} wallet ${s[0]} in ${nl} listing${nl>1?'s':''} at 1 tick under ${fmt(a,dec)}">List${nl>1?' ·'+nl:''}</button>`;if(offN[i]>0){const nAdj=offN[i]+Math.ceil(offQty[i]/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-price only your ${fmt(offQty[i])} off-target ${s[0]} to 1 tick under ${fmt(a,dec)} — ${nAdj} tx (listings already at target are left alone)">Adj ·${nAdj}</button>`;}}else if(n>0||lst>0)act='<span class="muted" title="no liquid ask to undercut">—</span>';
+    let act='';if(a>0){if(n>0)act+=`<button class="mini" onclick="listAllStone(${i})" title="Ladder your ${fmt(n)} wallet ${s[0]} up from ${fmt(a,dec)} in ${nl} listing${nl>1?'s':''}">List${nl>1?' ·'+nl:''}</button>`;
+      const desF=(ST.askWei&&ST.askWei[i]>1n)?ST.askWei[i]-1n:0n;let showAdj=false,drift=0,why="";
+      if(myCnt[i]>0&&desF>0n){const tot=n+lst,L=Math.ceil(tot/99),fN=Number(desF)/1e18,desTop=fN*ladMult(L,L-1),mfN=Number(myFront[i])/1e18,mtN=Number(myTop[i])/1e18;
+        const fD=Math.abs(mfN/fN-1),tD=desTop>0?Math.abs(mtN/desTop-1):0;drift=Math.max(fD,tD);showAdj=fD>LADDER_TOL||tD>LADDER_TOL;why=(tD>LADDER_TOL&&fD<=LADDER_TOL)?"not laddered":"front drifted "+(fD*100).toFixed(0)+"%";}
+      if(showAdj){const tot=n+lst,nAdj=myCnt[i]+Math.ceil(tot/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-ladder your ${fmt(tot)} ${s[0]} to the market (${why}) — ${nAdj} tx">Adj ·${nAdj}</button>`;}}else if(n>0||lst>0)act='<span class="muted" title="no liquid ask to undercut">—</span>';
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
     return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";
-  renderBatchBtn();renderLadder();}
+  renderBatchBtn();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
 function toggleSel(i){if(!ST.listSel)ST.listSel=new Set();if(ST.listSel.has(i))ST.listSel.delete(i);else ST.listSel.add(i);renderBatchBtn();}
 function toggleSelAll(){if(!ST.listSel)ST.listSel=new Set();const listable=STONE.map((_,i)=>i).filter(i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0));const allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));ST.listSel=new Set(allSel?[]:listable);renderStones();}
 function selItems(){return [...(ST.listSel||[])].filter(i=>(ST.stones[i]||0)>0&&ST.askWei&&ST.askWei[i]>1n).sort((a,b)=>a-b).map(i=>({stone:i,amount:ST.stones[i],price:ST.askWei[i]-1n}));}
-// chunk each stone into <=99 lots, then take the t-th lot of every stone -> listings of <=5 distinct stones
-function packListings(items){const cols=items.map(it=>{const lots=[];let rem=it.amount;while(rem>0){const a=Math.min(99,rem);lots.push({stone:it.stone,amount:a,price:it.price});rem-=a;}return lots;});const K=cols.reduce((m,c)=>Math.max(m,c.length),0),out=[];for(let t=0;t<K;t++){const row=cols.map(c=>c[t]).filter(Boolean);for(let j=0;j<row.length;j+=5)out.push(row.slice(j,j+5));}return out;}
-function renderBatchBtn(){const el=$("stoneBatch");if(!el)return;const items=selItems();if(!items.length){el.innerHTML='';return;}const listings=packListings(items);el.innerHTML='<button class="mini" onclick="listSelected()">List selected · '+listings.length+' tx</button> <span class="sub">'+items.map(it=>STONE[it.stone][0]+"×"+fmt(it.amount)).join(" · ")+' @ ask−1</span>';}
+// ladder each stone (it.price = its front = ask-1), then bundle the t-th lot of every stone into <=5-stone listings
+function packListings(items){return packLots(items.map(it=>ladLots(it.stone,it.amount,it.price)));}
+function renderBatchBtn(){const el=$("stoneBatch");if(!el)return;const items=selItems();if(!items.length){el.innerHTML='';return;}const listings=packListings(items);el.innerHTML='<button class="mini" onclick="listSelected()">List selected · '+listings.length+' tx</button> <span class="sub">'+items.map(it=>STONE[it.stone][0]+"×"+fmt(it.amount)).join(" · ")+' laddered ↑ from ask−1</span>';}
 async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
   const items=selItems();if(!items.length){set("s-err","Check stones you hold that have a liquid ask.");return;}
@@ -363,94 +357,54 @@ async function listSelected(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     set("s-ok","Listed "+items.map(it=>STONE[it.stone][0]+"×"+fmt(it.amount)).join(", ")+" in "+listings.length+" tx ✓");
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// ---- ladder sell: re-list a whole single-stone position across N equal-qty rungs at geometric prices (front→top) ----
-const ladTotal=i=>(ST.stones[i]||0)+((ST.myListed&&ST.myListed[i])||0);
-function ladFill(i){const aw=(ST.askWei&&ST.askWei[i])||0n,front=aw>1n?Number(aw-1n)/1e18:((ST.ask&&ST.ask[i])||0),d=front<1?4:2;$("ladFront").value=front?front.toFixed(d):"";$("ladFront").dataset.for=i;$("ladTop").value=front?(front*1.6).toFixed(d):"";}
-function renderLadder(){const sel=$("ladStone");if(!sel)return;const opts=STONE.map((_,i)=>i).filter(i=>ladTotal(i)>0);const cur=(ST.ladStone!=null&&opts.includes(ST.ladStone))?ST.ladStone:(opts.length?opts[0]:null);ST.ladStone=cur;
-  sel.innerHTML=opts.length?opts.map(i=>`<option value="${i}"${i===cur?" selected":""}>${STONE[i][0]} ×${fmt(ladTotal(i))}</option>`).join(""):'<option value="">— none held —</option>';
-  if(cur!=null&&(!$("ladFront").value||$("ladFront").dataset.for!=cur))ladFill(cur);
-  renderLadPreview();}
-function ladPick(){const v=$("ladStone").value;ST.ladStone=v===""?null:parseInt(v);if(ST.ladStone!=null)ladFill(ST.ladStone);renderLadPreview();}
-function ladPlan(){const i=ST.ladStone;if(i==null)return null;const total=ladTotal(i),N=Math.max(2,Math.min(40,parseInt($("ladN").value)||10)),front=parseFloat($("ladFront").value),top=parseFloat($("ladTop").value);
-  if(!(total>0))return{err:"nothing to ladder"};if(!(front>0)||!(top>0)||top<=front)return{err:"set from < to"};
-  const per=Math.floor(total/N),extra=total-per*N,rungs=[];
-  for(let k=0;k<N;k++){const q=per+(k<extra?1:0);if(q<=0)continue;const frac=N>1?k/(N-1):0,price=front*Math.pow(top/front,frac),priceWei=BigInt(Math.round(price*1e6))*(10n**18n/1000000n);rungs.push({stone:i,qty:q,price,priceWei});}
-  let listTx=0;for(const r of rungs)listTx+=Math.ceil(r.qty/99);
-  const cancels=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===i)).length;
-  return{i,total,N,front,top,rungs,listTx,cancels};}
-function renderLadPreview(){const el=$("ladPreview");if(!el)return;const p=ladPlan();if(!p){el.innerHTML="";return;}if(p.err){el.innerHTML='<span class="red">'+p.err+'</span>';return;}
-  const d=p.front<1?4:2;el.innerHTML=STONE[p.i][0]+': <b>'+p.rungs.length+'</b> rungs × ~'+fmt(p.rungs[0].qty)+' @ '+p.front.toFixed(d)+' → '+p.top.toFixed(d)+' · <b>'+(p.cancels+p.listTx)+' tx</b> ('+(p.cancels?p.cancels+' cancel + ':'')+p.listTx+' list)';}
-async function placeLadder(){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+// ---- auto-ladder: spread a stone's forced 99-lots up a geometric price curve (free — same tx count as one wall) ----
+const LADDER_STEP=0.04,LADDER_CAP=1.0,LADDER_TOL=0.08; // +4%/rung, capped at +100% total; re-ladder when the front drifts >8%
+function ladMult(L,k){if(L<=1)return 1;const t=Math.min(Math.pow(1+LADDER_STEP,L-1),1+LADDER_CAP);return Math.pow(t,k/(L-1));}
+function ladLots(stone,qty,frontWei){const L=Math.ceil(qty/99),out=[];let rem=qty,k=0;while(rem>0){const a=Math.min(99,rem);rem-=a;out.push({stone,amount:a,price:frontWei*BigInt(Math.round(ladMult(L,k)*1e6))/1000000n});k++;}return out;}
+// pack lots of possibly-different stones into listings of <=5 distinct stones (same stone never repeats within one listing)
+function packLots(cols){const K=cols.reduce((m,c)=>Math.max(m,c.length),0),out=[];for(let t=0;t<K;t++){const row=cols.map(c=>c[t]).filter(Boolean);for(let j=0;j<row.length;j+=5)out.push(row.slice(j,j+5));}return out;}
+// ---- sell: ladder a stone up from 1 tick under the best ask; encode a list() call ----
+function encList(items){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint256[]","uint256[]"],[items.map(x=>x.id),items.map(x=>x.amount),items.map(x=>BigInt(x.price))]);return S.list+enc.slice(2);}
+async function listAllStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
-  const p=ladPlan();if(!p||p.err){set("s-err",(p&&p.err)||"Pick a stone to ladder.");return;}
-  const mineI=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===p.i)),nTx=mineI.length+p.listTx,d=p.front<1?4:2;
+  const qty=ST.stones[i]||0;if(qty<=0){set("s-err","No "+STONE[i][0]+" held.");return;}
+  const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No ask to undercut on "+STONE[i][0]+" — nobody is selling it.");return;}
+  const front=aw-1n,lots=ladLots(i,qty,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18;
+  try{
+    const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
+    if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market to move your stones…");
+      const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
+    let done=0;
+    for(const lot of lots){
+      const dta=encList([{id:i,amount:lot.amount,price:lot.price}]);
+      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+lots.length+" listing(s) — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
+      set("s-wait","Laddering "+STONE[i][0]+" @ "+(Number(lot.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+lots.length+"…");
+      const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);
+    }
+    set("s-ok","Laddered "+fmt(qty)+" × "+STONE[i][0]+" over "+lots.length+" rungs ("+fr.toFixed(d)+"→"+top.toFixed(d)+") ✓");
+    setTimeout(()=>loadAll(true),4500);
+  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
+// ---- re-ladder a whole single-stone position to the current market (cancel + re-list as a fresh ladder) ----
+async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
+  const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No liquid ask to undercut on "+STONE[i][0]+".");return;}
+  const front=aw-1n;
+  const mineI=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===i));
+  const total=(ST.stones[i]||0)+((ST.myListed&&ST.myListed[i])||0);
+  if(!total){set("s-err","No "+STONE[i][0]+" to ladder.");return;}
+  // re-anchor the whole ladder to the current market: cancel my stone-i listings, re-list as a fresh ladder from front
+  const lots=ladLots(i,total,front),fr=Number(front)/1e18,d=fr<1?4:2,top=Number(lots[lots.length-1].price)/1e18,nTx=mineI.length+lots.length;
   try{
     const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
     if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market…");const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
     let done=0;
     for(const L of mineI){const dta=S.cancelListing+w(L.id);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Ladder "+STONE[p.i][0]+" — cancel "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
-    for(const r of p.rungs){let rem=r.qty;while(rem>0){const a=Math.min(99,rem);rem-=a;const dta=encList([{id:p.i,amount:a,price:r.priceWei}]);
+      set("s-wait","Re-laddering "+STONE[i][0]+" — cancel "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
+    for(const lot of lots){const dta=encList([{id:i,amount:lot.amount,price:lot.price}]);
       try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Ladder "+STONE[p.i][0]+" @ "+r.price.toFixed(d)+" — list "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}}
-    set("s-ok","Laddered "+fmt(p.total)+" × "+STONE[p.i][0]+" over "+p.rungs.length+" rungs ("+p.front.toFixed(d)+"→"+p.top.toFixed(d)+") ✓");
-    setTimeout(()=>loadAll(true),4500);
-  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// ---- sell: list ALL of a stone at 1 wei under the (depth-adjusted) best ask ----
-function encList(items){const enc=ethers.AbiCoder.defaultAbiCoder().encode(["uint256[]","uint256[]","uint256[]"],[items.map(x=>x.id),items.map(x=>x.amount),items.map(x=>BigInt(x.price))]);return S.list+enc.slice(2);}
-async function listAllStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
-  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
-  const qty=ST.stones[i]||0;if(qty<=0){set("s-err","No "+STONE[i][0]+" held.");return;}
-  const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No ask to undercut on "+STONE[i][0]+" — nobody is selling it.");return;}
-  const priceWei=aw-1n,px=Number(priceWei)/1e18;
-  // max 99 units per lot, and a stone id can appear only once per listing -> one listing per <=99 chunk
-  const chunks=[];let rem=qty;while(rem>0){const a=Math.min(99,rem);chunks.push(a);rem-=a;}
-  try{
-    const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
-    if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market to move your stones…");
-      const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
-    let done=0;
-    for(const amt of chunks){
-      const dta=encList([{id:i,amount:amt,price:priceWei}]);
-      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+chunks.length+" listing(s) — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Listing "+STONE[i][0]+" @ "+fmt(px,4)+" DRILL — "+(done+1)+"/"+chunks.length+"…");
-      const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);
-    }
-    set("s-ok","Listed "+fmt(qty)+" × "+STONE[i][0]+" @ "+fmt(px,4)+" DRILL in "+chunks.length+" listing(s) ✓");
-    setTimeout(()=>loadAll(true),4500);
-  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// ---- re-price only the OFF-TARGET listings of a stone to 1 tick under the current liquid ask (leaves already-correct ones untouched) ----
-async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
-  if(!ST.canSign||!WALLET){set("s-err","Connect your key first.");return;}
-  const aw=(ST.askWei&&ST.askWei[i])||0n;if(aw<=1n){set("s-err","No liquid ask to undercut on "+STONE[i][0]+".");return;}
-  const targetWei=aw-1n,px=Number(targetWei)/1e18;
-  const mineI=(ST.book||[]).filter(L=>L.mine&&(L.lots||[]).some(l=>l.stone===i));
-  if(!mineI.length){set("s-err","No "+STONE[i][0]+" listings of yours to adjust.");return;}
-  // only touch listings whose stone-i price isn't already the target — leave the ones already at ask untouched
-  const toFix=mineI.filter(L=>(L.lots||[]).some(l=>l.stone===i&&l.priceWei!==targetWei));
-  if(!toFix.length){set("s-ok",STONE[i][0]+" already at "+fmt(px,4)+" DRILL — nothing to adjust.");return;}
-  let iTotal=0;const others=[];   // co-bundled stones (rare) are kept at their existing price
-  for(const L of toFix)for(const l of (L.lots||[])){if(l.stone===i)iTotal+=l.amount;else others.push({stone:l.stone,amount:l.amount,priceWei:l.priceWei});}
-  // cancel my listings, then relist: stone i @ new price, others @ old price; <=99/lot, unique id per listing
-  const relist=[];let rem=iTotal;while(rem>0){const a=Math.min(99,rem);relist.push({stone:i,amount:a,price:targetWei});rem-=a;}
-  for(const o of others){let r=o.amount;while(r>0){const a=Math.min(99,r);relist.push({stone:o.stone,amount:a,price:o.priceWei});r-=a;}}
-  const byStone={};for(const l of relist)(byStone[l.stone]=byStone[l.stone]||[]).push(l);
-  const cols=Object.values(byStone),K=Math.max(...cols.map(c=>c.length)),tranches=[];for(let t=0;t<K;t++){const row=cols.map(c=>c[t]).filter(Boolean);for(let j=0;j<row.length;j+=5)tranches.push(row.slice(j,j+5));}  // <=5 distinct stones per listing (on-chain cap)
-  const nTx=toFix.length+tranches.length;
-  try{
-    const appr=await ethCall(A.stones,S.isApprovedForAll+wa(ST.addr)+wa(A.market));
-    if(BigInt(appr||"0x0")!==1n){set("s-wait","One-time: approving the market…");const ha=await send({to:A.stones,data:S.setApprovalForAll+wa(A.market)+w(1),value:"0x0"});await waitTx(ha);}
-    let done=0;
-    for(const L of toFix){const dta=S.cancelListing+w(L.id);
-      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Adjusting "+STONE[i][0]+" → "+fmt(px,4)+" DRILL — cancel "+(done+1)+"/"+nTx+"…");
-      const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("CANCEL "+h);}
-    for(const lots of tranches){const dta=encList(lots.map(l=>({id:l.stone,amount:l.amount,price:l.price})));
-      try{await ethCall(A.market,dta,ST.addr);}catch(e){set("s-err","Stopped after "+done+"/"+nTx+" — "+decodeErr(e));setTimeout(()=>loadAll(true),3000);return;}
-      set("s-wait","Adjusting "+STONE[i][0]+" → "+fmt(px,4)+" DRILL — relist "+(done+1)+"/"+nTx+"…");
-      const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
-    set("s-ok","Adjusted "+fmt(iTotal)+" × "+STONE[i][0]+" to "+fmt(px,4)+" DRILL in "+nTx+" tx ✓");
+      set("s-wait","Re-laddering "+STONE[i][0]+" @ "+(Number(lot.price)/1e18).toFixed(d)+" — "+(done+1)+"/"+nTx+"…");const h=await send({to:A.market,data:dta,value:"0x0"});done++;log("LIST "+h);}
+    set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" over "+lots.length+" rungs ("+fr.toFixed(d)+"→"+top.toFixed(d)+") ✓");
     setTimeout(()=>loadAll(true),4500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
@@ -626,9 +580,7 @@ $("rpc").addEventListener("change",e=>{try{localStorage.setItem("mars_rpc",e.tar
 $("connectPK").onclick=connectPK;$("forget").onclick=forgetKey;$("loadRo").onclick=loadRo;$("refresh").onclick=()=>loadAll(false,false);
 $("pk").addEventListener("keydown",e=>{if(e.key==="Enter")connectPK();});
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);});
-$("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;
-$("ladStone").onchange=ladPick;$("ladN").oninput=renderLadPreview;$("ladFront").oninput=renderLadPreview;$("ladTop").oninput=renderLadPreview;$("ladBtn").onclick=placeLadder;
-$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
+$("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
 renderRig();
