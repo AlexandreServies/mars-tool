@@ -132,6 +132,19 @@
     </div>
   </div>
 
+  <div class="card" id="xferCard" hidden>
+    <h2>Transfer stones <span class="r">send materials to any address</span></h2>
+    <div class="btnrow">
+      <input id="xferTo" class="mono" style="flex:1;min-width:150px" placeholder="0x… recipient address" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <select id="xferStone" style="flex:1;min-width:130px"></select>
+      <input id="xferQty" class="mono" style="width:64px" inputmode="numeric" placeholder="qty">
+      <button class="sec mini" id="xferMax" title="fill in your full held balance">Max</button>
+      <button id="xferBtn">Send</button>
+    </div>
+    <div class="sub" id="xferHint" style="margin-top:6px"></div>
+    <div id="xferOut" style="margin-top:6px"></div>
+  </div>
+
   <div class="card"><h2>Log</h2><pre id="log">—</pre></div>
 </div>
 
@@ -153,7 +166,7 @@ const S={freeRigsOf:"0x3e338229",balanceOf:"0x70a08231",occupantOf:"0x251286ef",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buy:"0x637a8b22",buyBatch:"0x9fd46449",
-  list:"0x00dd0cbb",cancelListing:"0x40e58ee5",setApprovalForAll:"0xa22cb465",isApprovedForAll:"0xe985e9c5"};
+  list:"0x00dd0cbb",cancelListing:"0x40e58ee5",setApprovalForAll:"0xa22cb465",isApprovedForAll:"0xe985e9c5",safeTransferFrom:"0xf242432a"};
 const RIGCAP=100;
 const DEPTH_UNITS=10; // resale price = lowest ask reaching this cumulative depth (ignores thin dust asks)
 const MINLOT=2;       // ignore ask lots smaller than this (qty-1 dust) before depth-adjusting
@@ -271,7 +284,7 @@ function encBuyBatch(calls){const enc=ethers.AbiCoder.defaultAbiCoder().encode([
 
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=false;renderRig();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=false;renderRig();
   const arg=wa(ST.addr);
   const [drillRaw,freeRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),ethCall(A.site,S.freeRigsOf+arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
@@ -333,7 +346,7 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
       if(showAdj){const tot=n+lst,nAdj=myCnt[i]+Math.ceil(tot/99);act+=(act?' ':'')+`<button class="mini sec" onclick="adjustStone(${i})" title="Re-ladder your ${fmt(tot)} ${s[0]} to the market (${why}) — ${nAdj} tx">Adj ·${nAdj}</button>`;}}else if(n>0||lst>0)act='<span class="muted" title="no liquid ask to undercut">—</span>';
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
     return `<tr><td class=n>${cb}</td><td><span class=swatch style="background:${s[2]}"></span>${s[0]}</td><td class="n ${n?'':'muted'}">${fmt(n)}</td><td class="n ${lst?'gold':'muted'}">${lst?fmt(lst):'–'}</td><td class="n ${b?'grn':'muted'}">${b?fmt(b,2):'–'}</td><td class="n ${a?'':'muted'}">${a?fmt(a,2):'–'}</td><td class=n>${act}</td></tr>`;}).join("")+"</tbody>";
-  renderBatchBtn();}
+  renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
 function toggleSel(i){if(!ST.listSel)ST.listSel=new Set();if(ST.listSel.has(i))ST.listSel.delete(i);else ST.listSel.add(i);renderBatchBtn();}
 function toggleSelAll(){if(!ST.listSel)ST.listSel=new Set();const listable=STONE.map((_,i)=>i).filter(i=>(ST.stones[i]||0)>0&&(ST.ask&&ST.ask[i]>0));const allSel=listable.length>0&&listable.every(i=>ST.listSel.has(i));ST.listSel=new Set(allSel?[]:listable);renderStones();}
@@ -416,6 +429,31 @@ async function adjustStone(i){const out=$("stoneOut"),set=(c,m)=>{if(out)out.inn
     const kept=keep.size;
     set("s-ok","Re-laddered "+fmt(total)+" × "+STONE[i][0]+" ("+fr.toFixed(d)+"→"+top.toFixed(d)+")"+(kept?" · kept "+kept+" untouched":"")+" ✓");
     setTimeout(()=>loadAll(true),4500);
+  }catch(e){set("s-err","Failed: "+decodeErr(e));}}
+// ---- transfer stones to any address (ERC-1155 safeTransferFrom; from == you, so no approval needed) ----
+function encXfer(to,id,amount){return S.safeTransferFrom+ethers.AbiCoder.defaultAbiCoder().encode(["address","address","uint256","uint256","bytes"],[ST.addr,to,id,amount,"0x"]).slice(2);}
+function renderXfer(){const sel=$("xferStone");if(!sel)return;const cur=sel.value;
+  sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("");
+  if(cur!=="")sel.value=cur;xferHint();}
+function xferHint(){const el=$("xferHint");if(!el)return;const id=Number($("xferStone").value||0),held=ST.stones[id]||0;
+  el.innerHTML=!ST.canSign?"Connect your key to send — view-only can't transfer.":held>0?'You hold <b>'+fmt(held)+'</b> × '+STONE[id][0]+". Arrives instantly and <b>can't be undone</b> — double-check the address.":"You don't hold any "+STONE[id][0]+".";}
+async function sendStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
+  if(!ST.canSign||!WALLET){set("s-err","Connect your key first — view-only can't send.");return;}
+  const to=($("xferTo").value||"").trim();
+  if(/[0-9a-fA-F]{64}/.test(to)){set("s-err","That looks like a private key — put a recipient address here.");return;}
+  if(!isAddr(to)){set("s-err","Enter a valid 0x… recipient address.");return;}
+  if(to.toLowerCase()===ST.addr.toLowerCase()){set("s-err","That's your own address — pick someone else.");return;}
+  const id=Number($("xferStone").value),qty=Math.floor(Number($("xferQty").value));
+  if(!(qty>0)){set("s-err","Enter a quantity greater than 0.");return;}
+  const held=ST.stones[id]||0;if(qty>held){set("s-err","You only hold "+fmt(held)+" × "+STONE[id][0]+".");return;}
+  const shortTo=to.slice(0,6)+"…"+to.slice(-4),dta=encXfer(to,id,qty);
+  try{
+    set("s-wait","Simulating…");
+    try{await ethCall(A.stones,dta,ST.addr);}catch(e){set("s-err","Reverted: "+decodeErr(e)+" (a contract recipient may not accept ERC-1155).");return;}
+    set("s-wait","Sending "+fmt(qty)+" × "+STONE[id][0]+" to "+shortTo+"…");
+    const h=await send({to:A.stones,data:dta,value:"0x0"});log("XFER "+h);
+    set("s-ok","Sent "+fmt(qty)+" × "+STONE[id][0]+" to "+shortTo+" ✓");
+    $("xferQty").value="";setTimeout(()=>loadAll(true),3500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
 function updDrillEth(){const e=Number(ST.drillEth)||0;
   if($("mDrillX"))$("mDrillX").textContent=e?"≈ "+fmt(ST.drill*e,3)+" ETH":"";
@@ -591,6 +629,7 @@ $("connectPK").onclick=connectPK;$("forget").onclick=forgetKey;$("loadRo").oncli
 $("pk").addEventListener("keydown",e=>{if(e.key==="Enter")connectPK();});
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);});
 $("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
+$("xferBtn").onclick=sendStones;$("xferMax").onclick=()=>{const id=Number($("xferStone").value||0);$("xferQty").value=ST.stones[id]||0;};$("xferStone").onchange=xferHint;$("xferTo").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});$("xferQty").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
 renderRig();
