@@ -260,8 +260,9 @@ const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slot
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buyCombined:"0x49263a31",
   list2:"0x2a5c2925",cancelListing:"0x40e58ee5",setApprovalForAll:"0xa22cb465",isApprovedForAll:"0xe985e9c5",safeTransferFrom:"0xf242432a",safeBatchTransferFrom:"0x2eb2c2d6"};
 const RIGCAP=100;
-const DEPTH_UNITS=10; // resale price = lowest ask reaching this cumulative depth (ignores thin dust asks)
-const MINLOT=2;       // ignore ask lots smaller than this (qty-1 dust) before depth-adjusting
+const DEPTH_UNITS=10; // ask = lowest price reaching this depth — capped at 10% of the stone's book (min 1 unit) so thin stones still price
+const MINLOT=2;       // a lot under this size is dust — only when it is also a negligible slice (< DUST_FRAC) of what others have listed
+const DUST_FRAC=0.02,DEPTH_FRAC=0.1;
 // owner-bonus % of a rig's find, by plot level (on-chain groundBpsAt). planter gets 25% of this.
 const OWNBONUS=[0,1.00,1.10,1.20,1.30,1.40,1.50,1.60,1.75,1.90,2.05,2.20,2.35,2.50,2.65,2.80,3.00,3.30,3.70,4.30,5.00];
 // plot weight (share of ETH swap-fee deposits), by level (on-chain plotWeightAt)
@@ -398,10 +399,13 @@ async function loadMarket(){
       const ll=Number(BigInt(await ethCall(mkt,S.lastListing)||"0x0"));
       for(let s=1;s<=ll;s+=240){const calls=[];for(let i=s;i<Math.min(s+240,ll+1);i++)calls.push({to:mkt,data:S.listingOf+w(i)});
         const ids=calls.map((_,k)=>s+k),dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
-        dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});allLots[id].push({price,amt,mine:isMine});if(!isMine&&amt>=MINLOT)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine,mv});});}
+        dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});allLots[id].push({price,amt,mine:isMine});if(!isMine)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine,mv});});}
     }catch(e){log("market v"+mv+" read: "+e.message);}}
-  // resale price = price at cumulative ask depth >= DEPTH_UNITS, ignoring qty-1 dust listings that set a fake floor
-  for(let i=0;i<12;i++){const L=ladder[i].sort((a,b)=>a.price-b.price);let cum=0,px=0,pxw=0n;for(const x of L){cum+=x.amt;px=x.price;pxw=x.pw;if(cum>=DEPTH_UNITS)break;}ask[i]=px;askWei[i]=pxw;}
+  // ask = price at cumulative depth >= min(DEPTH_UNITS, 10% of the book), skipping dust (lots < MINLOT that are also < 2% of the book).
+  // Liquid stones: 10 units deep, qty-1 lots ignored (a fake floor can't drag the price). Thin stones (Core Blue: three 1-unit
+  // lots): every lot is real and the cheapest one is the ask — before this, they showed no ask at all.
+  for(let i=0;i<12;i++){const tot=ladder[i].reduce((a,x)=>a+x.amt,0),depth=Math.max(1,Math.min(DEPTH_UNITS,Math.floor(tot*DEPTH_FRAC)));
+    const L=ladder[i].filter(x=>!(x.amt<MINLOT&&x.amt<tot*DUST_FRAC)).sort((a,b)=>a.price-b.price);let cum=0,px=0,pxw=0n;for(const x of L){cum+=x.amt;px=x.price;pxw=x.pw;if(cum>=depth)break;}ask[i]=px;askWei[i]=pxw;}
   // depth: every unit listed for sale (all sellers) and the part priced within +10% of the ask; bids sorted best-first
   const askUnits=Array(12).fill(0),askNear=Array(12).fill(0);for(let i=0;i<12;i++){for(const x of allLots[i]){askUnits[i]+=x.amt;if(ask[i]>0&&x.price<=ask[i]*1.1)askNear[i]+=x.amt;}bids[i].sort((a,b)=>b.price-a.price);}
   ST.bid=bid;ST.ask=ask;ST.askWei=askWei;ST.myListed=myListed;ST.book=book;ST.askUnits=askUnits;ST.askNear=askNear;ST.bids=bids;ST.allLots=allLots;

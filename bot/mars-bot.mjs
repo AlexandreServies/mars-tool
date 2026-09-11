@@ -44,8 +44,8 @@ const cfg = {
   collectChunk: num(process.env.MARS_COLLECT_CHUNK, 20),            // trays per collect tx
   // market
   marketMs:   Math.max(60000, num(process.env.MARS_MARKET_MS, 60000)), // rebalance >= 60s apart
-  depthUnits: num(process.env.MARS_DEPTH, 10),                       // dedust: ask must reach this depth
-  minLot:     num(process.env.MARS_MIN_LOT, 2),                      // ignore ask lots smaller than this (qty-1 dust)
+  depthUnits: num(process.env.MARS_DEPTH, 10),                       // dedust: ask must reach this depth (capped at 10% of the stone's book, min 1)
+  minLot:     num(process.env.MARS_MIN_LOT, 2),                      // lots under this size are dust — only when also <2% of what others list
   maxUnits:   Math.max(1, num(process.env.MARS_MAX_UNITS, 9999)),    // sell-side depth to keep listed per stone (units)
   relistPct:  num(process.env.MARS_RELIST_PCT, 0.10),               // relist for qty growth >= this frac
   floorDrill: num(process.env.MARS_FLOOR_DRILL, 0),                  // extra absolute price floor (DRILL/stone)
@@ -55,6 +55,7 @@ const HAULER = 2, HAULER_COST = 125;                                 // tier ind
 // market v2 (2026-09-10): a lot holds up to 9,999 units, <=5 distinct stones per listing, list(uint8[],uint16[],uint128[]).
 // Legacy (v1) listings still exist and are cancelled on their own contract; every new listing goes to v2.
 const MAX_LOT = 9999, LOTS_PER_LISTING = 5;
+const DUST_FRAC = 0.02, DEPTH_FRAC = 0.1;                            // dedust relative to the stone's book: dust = tiny lot that is also <2% of it; depth = min(depthUnits, 10% of it)
 const LADDER_STEP = 0.04, LADDER_CAP = 0.30, LADDER_TOL = 0.08;      // ladder: +4%/rung geometric, total spread capped at +30%; re-anchor when front/top drifts >8%
 const LADDER_RUNGS = 8, LADDER_MIN = 25;                             // up to 8 rungs of >=25 units (rungs are a choice now, not forced by the lot cap)
 const rungs = (qty) => Math.max(Math.ceil(qty / MAX_LOT), Math.min(LADDER_RUNGS, Math.max(1, Math.ceil(qty / LADDER_MIN))));
@@ -248,20 +249,26 @@ const lvHist = (ls) => { const m = {}; ls.forEach((l) => (m[l] = (m[l] || 0) + 1
 
 // ============================================================ ENGINE 2 =======
 // keep every held stone listed 1 wei under the best ask that isn't mine.
-let lastRebalance = 0;
+let lastRebalance = 0, bookLogged = false;
 async function engineMarket() {
   if (Date.now() - lastRebalance < cfg.marketMs) return;   // hard cap: 1 rebalance / minute
   const book = await api("/book?version=2");   // one order book across both markets; entries carry marketVersion 1|2
   const listings = book.listings || [], offers = book.offers || [];
   const mine = (a) => lc(a) === lc(ME);
 
-  // best OTHER ask per stone. Two dedust layers so thin liquidity can't drag the price:
-  //   (1) skip any lot smaller than minLot units (kills qty-1 pollution outright)
-  //   (2) of what's left, take the price only once cumulative depth reaches depthUnits
+  // best OTHER ask per stone. Two dedust layers, both sized to that stone's book, so a qty-1 lot can't drag a liquid
+  // stone while a thin stone (Core Blue: three 1-unit lots) still prices off its cheapest lot instead of having no ask:
+  //   (1) skip lots smaller than minLot units when they are also a negligible slice (< DUST_FRAC) of what others list
+  //   (2) of what's left, take the price once cumulative depth reaches min(depthUnits, DEPTH_FRAC of the book), at least 1 unit
   const ladder = Array.from({ length: 12 }, () => []);
-  for (const L of listings) if (!mine(L.seller)) for (const lot of L.lots || []) if (lot.amount >= cfg.minLot && lot.id < 12) ladder[lot.id].push({ p: BigInt(lot.price), a: lot.amount });
+  for (const L of listings) if (!mine(L.seller)) for (const lot of L.lots || []) if (lot.amount > 0 && lot.id < 12) ladder[lot.id].push({ p: BigInt(lot.price), a: lot.amount });
   const bestOther = Array(12).fill(0n);
-  for (let i = 0; i < 12; i++) { const arr = ladder[i].sort((x, y) => (x.p < y.p ? -1 : x.p > y.p ? 1 : 0)); let cum = 0; for (const x of arr) { cum += x.a; bestOther[i] = x.p; if (cum >= cfg.depthUnits) break; } }
+  for (let i = 0; i < 12; i++) {
+    const tot = ladder[i].reduce((s, x) => s + x.a, 0), depth = Math.max(1, Math.min(cfg.depthUnits, Math.floor(tot * DEPTH_FRAC)));
+    const arr = ladder[i].filter((x) => !(x.a < cfg.minLot && x.a < tot * DUST_FRAC)).sort((x, y) => (x.p < y.p ? -1 : x.p > y.p ? 1 : 0));
+    let cum = 0; for (const x of arr) { cum += x.a; bestOther[i] = x.p; if (cum >= depth) break; }
+  }
+  if (!bookLogged) { bookLogged = true; log(`  book asks (others): ${bestOther.map((p, i) => `${STONE_NAMES[i]} ${p ? fmtWei(p) : "–"}`).join(", ")}`); }
   // best bid per stone — a floor we never list below (a troll can't force a dump)
   const bestBid = Array(12).fill(0n);
   for (const o of offers) if (o.ore < 12) { const p = BigInt(o.price); if (p > bestBid[o.ore]) bestBid[o.ore] = p; }
@@ -352,7 +359,7 @@ async function main() {
   log(`gas ETH  ${fmtWei(eth, 5)}`);
   log(`engines  farm=${cfg.farm ? "on" : "off"} market=${cfg.market ? "on" : "off"}`);
   if (cfg.farm) log(`  farm   keep ${cfg.targetRigs} rigs, fund from wallet DRILL${cfg.drillReserve ? ` (reserve ${cfg.drillReserve})` : ""}${cfg.maxSpend ? `, <=${cfg.maxSpend}/cycle` : ""}, external=${cfg.external}, every ${cfg.farmMs / 1000}s`);
-  if (cfg.market) log(`  market ignore <${cfg.minLot}-qty asks + depth ${cfg.depthUnits}, keep <=${fmtN(cfg.maxUnits)} units listed per stone, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
+  if (cfg.market) log(`  market ask = depth min(${cfg.depthUnits}, 10% of book) ignoring <${cfg.minLot}-unit lots that are <2% of it, keep <=${fmtN(cfg.maxUnits)} units listed per stone, floor ${cfg.floorDrill} DRILL + best-bid, rebalance <= 1/${cfg.marketMs / 1000}s`);
   log("==========================================");
 
   if (cfg.farm) { try { await signIn(); } catch (e) { log(`sign-in failed (collect will retry): ${errStr(e)}`); } }
