@@ -1087,12 +1087,13 @@ function renderRefinery(){const R=ST.ref,tbl=$("refTbl");if(!tbl)return;const sl
   const units=Math.floor(slush/R.slushPerUnit),fullJobs=Math.floor(units/R.unitsMax),perDay=R.slots*86400/R.cycleSec;
   $("refR").textContent=R.built?"L"+R.level+" · "+R.active+"/"+R.slots+" slots busy":"not built";
   $("refSlush").innerHTML=sw+'Slush <b>'+fmt(slush)+'</b> = '+fmt(units)+' units · '+fmt(fullJobs)+' full jobs'+(R.built&&perDay?' · '+fmt(units/perDay,1)+' days of feed':'')+(R.paused?' · <span class="red">paused</span>':(!R.pub?' · <span class="red">not public yet</span>':''));
-  const dis=!ST.canSign?' disabled title="connect your key"':R.paused?' disabled title="the refinery is paused"':!R.pub?' disabled title="closed to the public right now — the game has not opened it yet"':'',bar=[];
+  const dis='',bar=[];   // buttons stay clickable: a tap explains itself in the status line (no key / closed by the game / reverted)
   if(!R.built)bar.push('<button class="mini g" onclick="refBuild()"'+dis+'>🏗 Build · '+fmt(Number(R.buildWei)/1e18)+' DRILL</button><span class="sub">burns the DRILL · '+R.baseSlots+' slot · '+R.unitsMax+' units per job · 1 unit per '+fmt(R.cycleSec/3600,1)+' h</span>');
   else{const more=R.slotsMax-R.slots;if(more>0)bar.push('<button class="mini" onclick="refBuySlots('+more+')"'+dis+' title="burns the DRILL — each slot runs one job">＋'+more+' slot'+(more>1?'s':'')+' · '+fmt(more*Number(R.slotWei)/1e18)+' DRILL</button>');
     const free=Math.max(0,R.slots-R.active),plan=refStartPlan(free);
     if(free>0)bar.push(plan.jobs.length?'<button class="mini g" onclick="refStart()"'+dis+' title="'+plan.jobs.map(u=>u+' units').join(' + ')+' · Slush is burned at start">▶ Start '+plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' · '+fmt(plan.units)+' units · '+fmt(plan.slush)+' Slush</button>':'<span class="sub">'+free+' free slot'+(free>1?'s':'')+' · need '+R.slushPerUnit+' Slush per unit</span>');
     else if(R.slots)bar.push('<span class="sub">all '+R.slots+' slots busy</span>');}
+  if(R.paused||!R.pub)bar.push('<span class="red" style="font-size:11px;flex-basis:100%">🔒 '+(R.paused?'paused by the game':'the game has it closed to the public right now (admin only)')+' — the buttons will say so until they open it</span>');
   $("refBar").innerHTML=bar.join("");
   if(!R.jobs.length){tbl.innerHTML=R.built?'<div class="sub">no jobs running</div>':'';return;}
   const now=Math.floor(Date.now()/1000);
