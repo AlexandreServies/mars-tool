@@ -184,7 +184,7 @@
   </div>
 
   <div class="card" id="prodCard" hidden>
-    <h2>Production timeline <span class="r" id="prodR">planet · 5m · 8h</span></h2>
+    <h2>Production timeline <span class="r" id="prodR">others’ rigs · 5m · 8h</span></h2>
     <div class="paxis"><span class="pnm"></span><span class="pbar"><span>now</span><span>+2h</span><span>+4h</span><span>+6h</span><span>8h</span></span><span class="ptot">Σ8h</span></div>
     <div id="prodBody"></div>
   </div>
@@ -272,7 +272,7 @@ const DEPLOY_TOPIC="0x321431a3f8c3ed9d49a8ea13b0fe9e35db349ce681d40e3dbd9770ba74
 const DUR2TIER={1800:0,3600:1,7200:2,14400:3,28800:4};
 const PROD_H=8,PROD_NB=96; // production timeline: 8h horizon, 5-min buckets
 // history cache (fills + rig ripenings) kept 30h, persisted in localStorage; wave stats on 30-min buckets, 24h back / 8h ahead
-const HIST_KEEP_H=26,HIST_LS="mars_hist_v3",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
+const HIST_KEEP_H=26,HIST_LS="mars_hist_v4",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
 const PRICE_H=48,PRICE_NB=96;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
 const DUST=i=>i<2;
@@ -425,19 +425,20 @@ function slushRefresh(light){if(ST.slushAddr!==ST.addr){ST.slush=null;ST.slushAd
 // only the blocks since the last scan (normally a single call). Chunks retry with backoff and a failed chunk stops the
 // scan at the last contiguous good block, so the cache never has holes — the next refresh simply continues from there. ----
 const HIST_TOPICS=[DEPLOY_TOPIC,MARKET_SALE_TOPIC,OFFER_FILL_TOPIC,LISTED_TOPIC,CANCEL_TOPIC];
-function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorage.getItem(HIST_LS);if(s){h=JSON.parse(s);if(!h||h.v!==3||!Array.isArray(h.dep)||!Array.isArray(h.sal)||typeof h.head!=="number")h=null;}}catch(e){h=null;}
-  ST.hist=h||{v:3,head:null,headTs:0,spb:SPB_DEFAULT,dep:[],sal:[],px:null};return ST.hist;}
+function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorage.getItem(HIST_LS);if(s){h=JSON.parse(s);if(!h||h.v!==4||!Array.isArray(h.dep)||!Array.isArray(h.sal)||!Array.isArray(h.pl)||typeof h.head!=="number")h=null;}}catch(e){h=null;}
+  ST.hist=h||{v:4,head:null,headTs:0,spb:SPB_DEFAULT,dep:[],sal:[],pl:[],px:null};ST.hist.plm=new Map(ST.hist.pl.map((a,i)=>[a,i]));return ST.hist;}
 let histSaved=0;
-function histSave(force){const h=ST.hist;if(!h||h.head==null||(!force&&Date.now()-histSaved<60000))return;histSaved=Date.now();try{localStorage.setItem(HIST_LS,JSON.stringify(h));}catch(e){}}
+function histSave(force){const h=ST.hist;if(!h||h.head==null||(!force&&Date.now()-histSaved<60000))return;histSaved=Date.now();try{const{plm,...rest}=h;localStorage.setItem(HIST_LS,JSON.stringify(rest));}catch(e){}}
 const blkTime=b=>{const h=ST.hist;return (h.headTs-(h.head-b)*h.spb)*1000;};   // block → wall-clock ms via the measured seconds/block
 async function histChunk(f,t,tries){try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.market,A.market2],topics:[HIST_TOPICS]}]);}
   catch(e){if(tries>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tries)));return histChunk(f,t,tries-1);}return null;}}
-// rows — deploy: [readyAt(s), tier]. market: [block, stone, units, DRILL value, kind] with kind 0 = part of a multi-stone
+// rows — deploy: [readyAt(s), tier, planter index into h.pl] (so your own rigs can be told apart). market: [block, stone, units, DRILL value, kind] with kind 0 = part of a multi-stone
 // buy (value split by catalog weight), 1 = single-stone fill (exact unit price), 2 = listed (value = units × list price),
 // 3 = cancelled, 4 = sold into a bid. Kinds 0/1/4 are units bought (demand); 2/3 are units entering/leaving the ask side.
 function histIngest(logs){const h=ST.hist,site=A.site.toLowerCase();
   for(const lg of logs){const d=(lg.data||"").replace(/^0x/,""),W=i=>d.slice(i*64,i*64+64),tp=lg.topics&&lg.topics[0],blk=parseInt(lg.blockNumber,16);
-    if((lg.address||"").toLowerCase()===site){if(d.length<128)continue;const tier=DUR2TIER[parseInt(W(1),16)];if(tier!==undefined)h.dep.push([parseInt(W(0),16),tier]);continue;}
+    if((lg.address||"").toLowerCase()===site){if(d.length<128)continue;const tier=DUR2TIER[parseInt(W(1),16)];if(tier===undefined)continue;
+      const pa="0x"+(lg.topics[1]||"").slice(26).toLowerCase();let pid=h.plm.get(pa);if(pid===undefined){pid=h.pl.length;h.pl.push(pa);h.plm.set(pa,pid);}h.dep.push([parseInt(W(0),16),tier,pid]);continue;}
     if(tp===MARKET_SALE_TOPIC){if(d.length<192)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,price=Number(BigInt("0x"+W(2)))/1e18,k=parseInt(W(io),16);
       const ids=[],am=[];let tw=0;for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);ids.push(id);am.push(a);if(id<12)tw+=a*(STONE[id][1]||1e-4);}
       for(let j=0;j<k;j++){const id=ids[j];if(id>=12||am[j]<=0)continue;const share=k===1?1:(tw>0?am[j]*(STONE[id][1]||1e-4)/tw:1/k);h.sal.push([blk,id,am[j],+(price*share).toPrecision(6),k===1?1:0]);}}
@@ -445,14 +446,14 @@ function histIngest(logs){const h=ST.hist,site=A.site.toLowerCase();
     else if(tp===LISTED_TOPIC||tp===CANCEL_TOPIC){if(d.length<128)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,po=tp===LISTED_TOPIC?parseInt(W(2),16)/32:0,k=parseInt(W(io),16);
       for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);if(id>=12||a<=0)continue;const v=po?Number(BigInt("0x"+W(po+1+j)))/1e18*a:0;h.sal.push([blk,id,a,+v.toPrecision(6),tp===LISTED_TOPIC?2:3]);}}}}
 let histBusy=false;
-function histProgress(txt){ST.histProg=txt;const r=$("prodR");if(r)r.textContent=txt||"planet · 5m · 8h";const wb=$("waveBody");if(txt&&wb&&!ST.stats)wb.innerHTML='<div class="sub">'+txt+'</div>';}
+function histProgress(txt){ST.histProg=txt;const r=$("prodR");if(r)r.textContent=txt||"others’ rigs · 5m · 8h";const wb=$("waveBody");if(txt&&wb&&!ST.stats)wb.innerHTML='<div class="sub">'+txt+'</div>';}
 async function histRefresh(){if(histBusy)return;histBusy=true;
   try{const h=histLoad();
     const hb=await rpc("eth_getBlockByNumber",["latest",false]);const head=parseInt(hb.number,16),headTs=parseInt(hb.timestamp,16);
     if(h.head==null){   // first load on this device: measure s/block over the window, then scan it all
       const from=Math.max(DEPLOY_BLOCK,head-Math.round(Math.max(HIST_KEEP_H+8,PRICE_H+2)*3600/SPB_DEFAULT));   // enough for 48h of prices
       try{const ob=await rpc("eth_getBlockByNumber",["0x"+from.toString(16),false]);const s=(headTs-parseInt(ob.timestamp,16))/Math.max(1,head-from);if(s>0.01&&s<10)h.spb=s;}catch(e){}
-      h.head=from-1;h.headTs=headTs-(head-from+1)*h.spb;h.dep=[];h.sal=[];}
+      h.head=from-1;h.headTs=headTs-(head-from+1)*h.spb;h.dep=[];h.sal=[];h.pl=[];h.plm=new Map();}
     if(head>h.head){const CH=9000,R=[];for(let b=h.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
       const PAR=6;let last=h.head,stop=false;
       for(let i=0;i<R.length&&!stop;i+=PAR){if(R.length>3)histProgress("scanning history "+Math.round(100*i/R.length)+"%…");
@@ -463,7 +464,7 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
     histStats();   // before pruning, so a first-load 50h scan fills the whole 48h price series
     const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 26h of ripenings (past+future) and market rows
     h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
-    ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1]}));ST.depHead=h.head;
+    const meId=h.plm.get((ST.addr||"").toLowerCase());ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1],mine:x[2]===meId}));ST.depHead=h.head;
     histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderWaves();renderOpt();
   }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
 // ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
@@ -472,7 +473,8 @@ function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.n
   const Z=()=>Array(12).fill(0),G=n=>Array.from({length:12},()=>Array(n).fill(0));
   const sup=G(NB),vol=G(PAST_NB),lvol=G(PAST_NB),supT=G(5),fills=Array.from({length:12},()=>Array.from({length:PAST_NB},()=>[]));
   const u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),l2=Z(),c2=Z(),l24=Z(),r24=Z(),a2=Z(),pxf=Array.from({length:12},()=>({}));
-  for(const x of h.dep){const b=bk(x[0]*1000);if(b<0||b>=NB)continue;const t=TIERS[x[1]];for(let s=0;s<12;s++){const o=t.odds[s];if(o){const u=t.tray*o/1e4;sup[s][b]+=u;if(b<PAST_NB){r24[s]+=u;supT[s][x[1]]+=u;}}}}
+  const meId=h.plm.get((ST.addr||"").toLowerCase());   // your own rigs are not market pressure: skip them in every supply figure
+  for(const x of h.dep){if(x[2]===meId)continue;const b=bk(x[0]*1000);if(b<0||b>=NB)continue;const t=TIERS[x[1]];for(let s=0;s<12;s++){const o=t.odds[s];if(o){const u=t.tray*o/1e4;sup[s][b]+=u;if(b<PAST_NB){r24[s]+=u;supT[s][x[1]]+=u;}}}}
   const t1=now-3.6e6,t2=now-7.2e6,t24=now-24*3.6e6;
   for(const x of h.sal){const t=blkTime(x[0]),s=x[1],k=x[4],b=bk(t);
     if(k===2){if(t>t2)l2[s]+=x[2];if(t>t24)l24[s]+=x[2];if(b>=0&&b<PAST_NB)lvol[s][b]+=x[2];continue;}
@@ -589,7 +591,7 @@ function renderLevels(){const el=$("lvBody");if(!el)return;const cnt=ST.lvDist;i
 function renderProd(){
   const body=$("prodBody");if(!body)return;
   const NB=PROD_NB,H=PROD_H,bw=H/NB,now=Date.now(),grid=Array.from({length:12},()=>Array(NB).fill(0));
-  for(const dp of (ST.deploys||[])){const hr=(dp.ready-now)/3.6e6;if(hr<=0||hr>H)continue;const bi=Math.min(NB-1,Math.floor(hr/bw)),t=TIERS[dp.tier];if(!t)continue;for(let s=0;s<12;s++)grid[s][bi]+=t.tray*t.odds[s]/1e4;}
+  for(const dp of (ST.deploys||[])){if(dp.mine)continue;const hr=(dp.ready-now)/3.6e6;if(hr<=0||hr>H)continue;const bi=Math.min(NB-1,Math.floor(hr/bw)),t=TIERS[dp.tier];if(!t)continue;for(let s=0;s<12;s++)grid[s][bi]+=t.tray*t.odds[s]/1e4;}
   const loading=ST.depHead==null;
   body.innerHTML=STONE.map((s,i)=>{const g=grid[i],mx=Math.max(...g,1e-9),T=g.reduce((a,b)=>a+b,0);
     if(T<1)return `<div class="prow pempty"><span class="pnm"><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><span class="pbar"></span><span class="ptot muted">${loading?'…':'–'}</span></div>`;
