@@ -200,6 +200,11 @@
     <div id="supplyBody"></div>
   </div>
 
+  <div class="card" id="playersCard" hidden>
+    <h2>Active players <span class="r" id="playersR">since TGE · 1h</span></h2>
+    <div id="playersBody"></div>
+  </div>
+
   <div class="card" id="waveCard" hidden>
     <h2>Sell timing <span class="r">tap a row · 🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2>
     <div class="tscroll" id="waveBody"></div>
@@ -280,7 +285,9 @@ const PROD_H=8,PROD_NB=96; // production timeline: 8h horizon, 5-min buckets
 const HIST_KEEP_H=26,HIST_LS="mars_hist_v4",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
 const PRICE_H=48,PRICE_NB=96;
 // DRILL supply: hourly mint/burn totals since TGE (DRILL contract creation), cached per device, extended incrementally every 5 min
-const DRILL_TGE_BLOCK=58080230,SUPPLY_LS="mars_supply_v1",SUPPLY_MS=300000;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
+const DRILL_TGE_BLOCK=58080230,SUPPLY_LS="mars_supply_v1",SUPPLY_MS=300000;
+// active players: distinct wallets that planted or collected a rig in each hour since TGE (site Deploy + Collected events)
+const COLLECTED_TOPIC="0x272da74aea4c15236a7fd471af9a12f644ff5d4a630c0898c59d304fe29a71ec",PLAYERS_LS="mars_players_v1",PLAYERS_SETS_H=48;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
 const DUST=i=>i<2;
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
@@ -472,7 +479,7 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
     const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 26h of ripenings (past+future) and market rows
     h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
     const meId=h.plm.get((ST.addr||"").toLowerCase());ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1],mine:x[2]===meId}));ST.depHead=h.head;
-    histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderWaves();renderOpt();supplyRefresh();
+    histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderWaves();renderOpt();supplyRefresh();playersRefresh();
   }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
 // ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
 const med=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;};
@@ -568,6 +575,47 @@ function renderSupply(){const el=$("supplyBody");if(!el)return;const c=ST.supply
     <text x="0" y="${H+6}" font-size="3.2" fill="var(--mut2)">TGE ${new Date(c.tgeTs).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</text>${ticks.join("")}<text x="${W}" y="${H+6}" font-size="3.2" text-anchor="end" fill="var(--mut2)">now</text></svg>`;
   const r=$("supplyR");if(r)r.innerHTML=fmt(ser[n-1])+' DRILL · 24h <span style="color:'+col+'">'+(chg>=0?'▲':'▼')+' '+Math.abs(chg*100).toFixed(1)+'%</span>';
   el.title="minted "+fmtK(c.hrs.reduce((a,x)=>a+x[0],0))+" · burned "+fmtK(c.hrs.reduce((a,x)=>a+x[1],0))+" since TGE · "+n+" hours"+(Math.abs(off)>1?" · anchor adj "+fmt(off):"");}
+// ---- active players per hour since TGE. A wallet counts as active in an hour if it planted or collected a rig then.
+// Cached per device: counts per hour for all hours, the wallet sets only for the last 48h (for 24h uniques), one address
+// table with each wallet's first-seen hour (for "new wallets"). Extended from the last scanned block every 5 min. ----
+let playersBusy=false,playersAt=0;
+function playersLoad(){if(ST.players)return ST.players;let c=null;try{c=JSON.parse(localStorage.getItem(PLAYERS_LS)||"null");}catch(e){}
+  if(!c||c.v!==1||!Array.isArray(c.hrs)||!Array.isArray(c.pl)||!Array.isArray(c.first)||typeof c.head!=="number")c={v:1,head:DEPLOY_BLOCK-1,tgeTs:0,hrs:[],sets:{},pl:[],first:[]};
+  c.plm=new Map(c.pl.map((a,i)=>[a,i]));ST.players=c;return c;}
+async function playersRefresh(force){if(playersBusy||(!force&&Date.now()-playersAt<SUPPLY_MS))return;const h=ST.hist;if(!h||h.head==null)return;playersBusy=true;
+  try{const c=playersLoad();
+    if(!c.tgeTs)c.tgeTs=(ST.supply&&ST.supply.tgeTs)||parseInt((await rpc("eth_getBlockByNumber",["0x"+DRILL_TGE_BLOCK.toString(16),false])).timestamp,16)*1000;
+    const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
+    const one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[[DEPLOY_TOPIC,COLLECTED_TOPIC]]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tr)));return one(f,t,tr-1);}return null;}};
+    const live={};const setOf=hr=>live[hr]||(live[hr]=new Set(c.sets[hr]||[]));   // transient Sets over the stored arrays
+    let last=c.head,stop=false;const PAR=4;
+    for(let i=0;i<R.length&&!stop;i+=PAR){if(R.length>3){const r=$("playersR");if(r)r.textContent="scanning "+Math.round(100*i/R.length)+"%…";}
+      const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>one(f,t,4)));
+      for(let k=0;k<part.length;k++){const lg=res[k];if(!Array.isArray(lg)){stop=true;break;}
+        for(const l of lg){const pa="0x"+(l.topics[1]||"").slice(26).toLowerCase();if(pa.length!==42)continue;const hr=Math.floor((blkTime(parseInt(l.blockNumber,16))-c.tgeTs)/3.6e6);if(hr<0)continue;
+          let pid=c.plm.get(pa);if(pid===undefined){pid=c.pl.length;c.pl.push(pa);c.plm.set(pa,pid);c.first.push(hr);}setOf(hr).add(pid);}
+        last=part[k][1];}}
+    const nowHr=Math.floor((Date.now()-c.tgeTs)/3.6e6);
+    for(const hr of Object.keys(live)){const s=[...live[hr]];c.sets[hr]=s;while(c.hrs.length<=hr)c.hrs.push([0,0]);c.hrs[hr]=[s.length,s.filter(p=>c.first[p]===Number(hr)).length];}
+    for(const k of Object.keys(c.sets))if(nowHr-Number(k)>PLAYERS_SETS_H)delete c.sets[k];   // counts stay, wallet sets only for 48h
+    c.head=last;c.done=!stop;
+    try{const{plm,...rest}=c;localStorage.setItem(PLAYERS_LS,JSON.stringify(rest));}catch(e){}
+    if(stop){log("players scan paused at block "+last+" (RPC busy) — continues next refresh");const r=$("playersR");if(r)r.textContent="scanning…";}else{playersAt=Date.now();renderPlayers();}
+  }catch(e){log("players: "+e.message);}finally{playersBusy=false;}}
+function renderPlayers(){const el=$("playersBody");if(!el)return;const c=ST.players;if(!c||!c.done||c.hrs.length<2){el.innerHTML='<div class="sub">'+(c&&c.hrs.length?'scanning…':'loading…')+'</div>';return;}
+  const nowHr=Math.floor((Date.now()-c.tgeTs)/3.6e6),n=Math.max(2,Math.min(c.hrs.length,nowHr));   // full hours only: the running hour is dropped
+  const act=c.hrs.slice(0,n).map(x=>x[0]),nw=c.hrs.slice(0,n).map(x=>x[1]);
+  const mx=Math.max(1,...act),W=100,H=32,X=k=>k/(n-1)*W,Y=v=>H-v/mx*H*0.96;
+  const line="M"+act.map((v,k)=>X(k).toFixed(2)+" "+Y(v).toFixed(2)).join(" L"),bw=Math.max(0.4,W/n*0.7);
+  const bars=nw.map((v,k)=>v?`<rect x="${(X(k)-bw/2).toFixed(2)}" y="${Y(v).toFixed(2)}" width="${bw.toFixed(2)}" height="${(H-Y(v)).toFixed(2)}" fill="var(--green)" opacity=".5"/>`:"").join("");
+  const days=Math.floor((n-1)/24),ticks=[];for(let d=1;d<=days;d++){if(X(d*24)>W-9)continue;ticks.push(`<text x="${X(d*24).toFixed(1)}" y="${H+6}" font-size="3.2" text-anchor="middle" fill="var(--mut2)">+${d}d</text>`);}
+  el.innerHTML=`<svg viewBox="-9 -1 ${W+10} ${H+8}" style="width:100%;display:block" preserveAspectRatio="none">${bars}<path d="${line}" fill="none" stroke="var(--drill)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+    <text x="-1" y="3" font-size="3.2" text-anchor="end" fill="var(--mut)">${fmtK(mx)}</text><text x="-1" y="${H}" font-size="3.2" text-anchor="end" fill="var(--mut)">0</text>
+    <text x="0" y="${H+6}" font-size="3.2" fill="var(--mut2)">TGE ${new Date(c.tgeTs).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</text>${ticks.join("")}<text x="${W}" y="${H+6}" font-size="3.2" text-anchor="end" fill="var(--mut2)">now</text></svg>`;
+  const uniq=hh=>{const u=new Set();for(let k=Math.max(0,n-hh);k<n;k++)for(const p of (c.sets[k]||[]))u.add(p);return u.size;};
+  const s24=act.slice(-24).reduce((a,b)=>a+b,0),p24=act.slice(-48,-24).reduce((a,b)=>a+b,0),chg=p24?s24/p24-1:null,col=chg==null?'var(--mut)':chg>0.02?'var(--green)':chg<-0.02?'var(--red)':'var(--mut)';
+  const r=$("playersR");if(r)r.innerHTML=fmt(act[n-1])+' last hour · '+fmt(uniq(24))+' in 24h'+(chg==null?'':' · <span style="color:'+col+'">'+(chg>=0?'▲':'▼')+' '+Math.abs(chg*100).toFixed(0)+'% vs prev day</span>');
+  el.title="line: wallets that planted or collected a rig in the hour · green bars: wallets seen for the first time · "+fmt(c.pl.length)+" wallets ever · "+n+" full hours since TGE";}
 // ---- per-stone sell signal (tool 3): upcoming bursts × sellers' lag vs what the book absorbs, else the book's own trend ----
 function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st.dem||st.dem24,an=(ST.askNear&&ST.askNear[i])||0,au=(ST.askUnits&&ST.askUnits[i])||0;
   const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
@@ -642,7 +690,7 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=$("priceCard").hidden=$("supplyCard").hidden=false;renderSupply();renderRig();renderProd();renderPrices();renderWaves();renderRigs();renderLevels();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=$("priceCard").hidden=$("supplyCard").hidden=$("playersCard").hidden=false;renderSupply();renderPlayers();renderRig();renderProd();renderPrices();renderWaves();renderRigs();renderLevels();
   const arg=wa(ST.addr);
   slushRefresh(light);   // fire-and-forget log scan; fills the Slush row when done
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
