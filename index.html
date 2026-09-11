@@ -149,7 +149,9 @@
   <!-- PORTFOLIO -->
   <div class="card" id="portCard" hidden>
     <h2>Plots <span class="r" id="portR"></span></h2>
+    <div id="upBar" class="btnrow" style="margin-bottom:6px;min-height:0"></div>
     <div class="scroll" id="portTbl"></div>
+    <div id="portOut"></div>
   </div>
 
   <div class="row">
@@ -698,7 +700,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   const [drillRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
-  const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();
+  const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();renderUpBar();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
@@ -721,8 +723,8 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
-  renderPort();renderDeploy();renderRig();renderRigs();renderLevels();renderStones();fillUpSel();loadCosts().then(fillUpSel);
-  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();
+  renderPort();renderDeploy();renderRig();renderRigs();renderLevels();renderStones();fillUpSel();loadCosts().then(()=>{fillUpSel();renderUpBar();});
+  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();renderUpBar();
   if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
   startAuto();
@@ -938,14 +940,68 @@ function updDrillEth(){const e=Number(ST.drillEth)||0;
   if($("mStoneValX"))$("mStoneValX").textContent=e&&sv?"≈ "+fmt(sv*e,3)+" ETH":(mktReady()?"DRILL":"");}
 function stonesEnough(lvl){const c=COST[lvl];if(!c)return null;return c.ids.every((id,k)=>ST.stones[id]>=c.amts[k]);}
 function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=>c.amts[k]+"×"+STONE[id][0]).join(", ");}
-function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);
+function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);if(!ST.upSel)ST.upSel=new Set();
   $("portR").textContent=fmt(ST.myWeight)+" wt · "+(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
-  $("portTbl").innerHTML="<table><thead><tr><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th>Rig</th><th></th></tr></thead><tbody>"+
+  const upg=p.filter(x=>x.level<MAXLVL),allSel=upg.length>0&&upg.every(x=>ST.upSel.has(x.id));
+  $("portTbl").innerHTML="<table><thead><tr><th><input type=checkbox title='select every plot below max level' onclick='upSelAll()'"+(allSel?" checked":"")+(upg.length?"":" disabled")+" style='width:auto'></th><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th>Rig</th><th></th></tr></thead><tbody>"+
     p.map(x=>{const can=ST.canSign&&x.level<MAXLVL;
-    return `<tr><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
+    return `<tr><td>${x.level<MAXLVL?`<input type=checkbox onclick="upToggle(${x.id})"${ST.upSel.has(x.id)?" checked":""} style="width:auto">`:''}</td><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
       <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
       <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
-      <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";}
+      <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";renderUpBar();}
+// ---- multi-upgrade: tick plots, buy every missing stone in ONE tx, then upgrade each ticked plot by one level ----
+function upToggle(id){if(!ST.upSel)ST.upSel=new Set();if(ST.upSel.has(id))ST.upSel.delete(id);else ST.upSel.add(id);renderUpBar();}
+function upSelAll(){if(!ST.upSel)ST.upSel=new Set();const upg=ST.plots.filter(x=>x.level<MAXLVL);const all=upg.length>0&&upg.every(x=>ST.upSel.has(x.id));ST.upSel=new Set(all?[]:upg.map(x=>x.id));renderPort();}
+const upSelIds=()=>[...(ST.upSel||[])].filter(id=>{const p=ST.plots.find(x=>x.id===id);return p&&p.level<MAXLVL;});
+// total stones needed to take each selected plot up one level (null while a cost is still loading)
+function upNeed(ids){const need={};for(const id of ids){const p=ST.plots.find(x=>x.id===id),c=p&&COST[p.level+1];if(!c)return null;c.ids.forEach((sid,k)=>{need[sid]=(need[sid]||0)+c.amts[k];});}return need;}
+function renderUpBar(){const el=$("upBar");if(!el)return;const ids=upSelIds();if(!ids.length){el.innerHTML='';return;}
+  const need=upNeed(ids);if(!need){el.innerHTML='<span class="sub">loading upgrade costs…</span>';return;}
+  const missing={},needStr=[],missStr=[];for(const sid in need){const m=Math.max(0,need[sid]-(ST.stones[sid]||0));needStr.push(fmt(need[sid])+"×"+STONE[sid][0]);if(m>0){missing[sid]=m;missStr.push(fmt(m)+"×"+STONE[sid][0]);}}
+  let buy='';if(missStr.length){const plan=mktReady()?planBuy(missing):null,short=plan?Object.keys(plan.short):[];buy=' · <span class="gold">buy '+missStr.join(", ")+'</span>'+(plan?(short.length?' <span class="red">(none listed: '+short.map(s=>STONE[s][0]).join("/")+')</span>':' ≈ <b>'+fmt(Number(plan.costWei)/1e18)+' DRILL</b>'):'');}
+  const nTx=ids.length+(missStr.length?1:0);
+  el.innerHTML=`<button class="mini" onclick="upgradeSelected()"${ST.canSign?'':' disabled title="connect your key"'}>⬆ Upgrade ${ids.length} +1</button><span class="sub">${needStr.join(", ")}${buy} · ${nTx} tx</span>`;}
+// make sure the wallet holds `need` = {stoneId: qty}: buy the whole shortfall in one buyCombined tx, re-reading balances and
+// the live book each round so filled listings self-heal. Returns true when covered; writes the reason to `o` otherwise.
+async function ensureMaterials(need,o){
+  for(let round=0;round<6;round++){
+    ST.stones=await stoneBatch(ST.addr);
+    const missing={};for(const sid in need){const m=Math.max(0,need[sid]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;}
+    if(!Object.keys(missing).length)return true;
+    o.innerHTML='<div class="status s-wait">Reading the market…</div>';await loadMarket();
+    const plan=planBuy(missing),shortKeys=Object.keys(plan.short);
+    if(shortKeys.length){err(o,'Can\'t buy '+shortKeys.map(s=>STONE[s][0]).join("/")+' — none listed. Mine via Motherlode.');return false;}
+    if(!plan.calls.length){err(o,'No sellers for the missing ore right now — try again shortly.');return false;}
+    const costWei=plan.costWei,costD=Number(costWei)/1e18;
+    if(ST.drill<costD){err(o,'Need '+fmt(costD)+' DRILL to buy materials, have '+fmt(ST.drill)+'.');return false;}
+    if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
+      try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market2)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
+      catch(e){err(o,'Approve rejected: '+decodeErr(e));return false;}}
+    let lastH,stale=false;const data=encBuyCombined(plan.calls,costWei,Math.floor(Date.now()/1000)+1200); // every listing (v2 + legacy) in ONE tx
+    o.innerHTML='<div class="status s-wait">Buying materials — 1 tx, '+plan.calls.length+' listing'+(plan.calls.length>1?'s':'')+' ('+fmt(costD)+' DRILL)…</div>';
+    try{await ethCall(A.market2,data,ST.addr);}
+    catch(e){const reason=decodeErr(e);if(/re-planning|listing|price moved|deadline/.test(reason)){stale=true;}else{err(o,'Buy reverted: '+reason);return false;}}
+    if(!stale){try{lastH=await send({from:ST.addr,to:A.market2,data,value:"0x0"});log("BUY "+lastH);}catch(e){err(o,'Buy rejected: '+decodeErr(e));return false;}}
+    if(lastH){o.innerHTML='<div class="status s-wait">Confirming purchase…</div>';await waitTx(lastH);}
+    if(!stale&&!lastH)break;
+  }
+  ST.stones=await stoneBatch(ST.addr);
+  for(const sid in need)if((ST.stones[sid]||0)<need[sid]){err(o,'Market too thin to fill the order right now — try again shortly.');return false;}
+  return true;}
+async function upgradeSelected(){const o=$("portOut"),ids=upSelIds();if(!ids.length)return;
+  const need=upNeed(ids);if(!need){err(o,'Upgrade costs still loading — one moment.');return;}
+  if(!await guardChain(o))return;ST.busy=true;
+  try{
+    if(!await ensureMaterials(need,o))return;
+    // no batch call on the plots contract: one tx per plot, sent back-to-back (each simulated first), lowest level first
+    const order=ids.map(id=>ST.plots.find(x=>x.id===id)).sort((a,b)=>a.level-b.level||a.id-b.id);let done=0,lastH=null;
+    for(const p of order){const data=S.plotUpgrade+w(p.id);
+      try{await ethCall(A.plots,data,ST.addr);}catch(e){err(o,'Stopped after '+done+'/'+order.length+' — #'+p.id+': '+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}
+      o.innerHTML='<div class="status s-wait">Upgrading '+(done+1)+'/'+order.length+' — #'+p.id+' → L'+(p.level+1)+'…</div>';
+      try{lastH=await send({from:ST.addr,to:A.plots,data,value:"0x0"});log("UPGRADE "+lastH);done++;}catch(e){err(o,'Rejected at '+done+'/'+order.length+': '+decodeErr(e));if(done)setTimeout(()=>loadAll(true),3000);return;}}
+    if(lastH)await waitTx(lastH);
+    ST.upSel.clear();o.innerHTML='<div class="status s-ok">Upgraded '+done+' plot'+(done>1?'s':'')+' by one level ✓</div>';setTimeout(()=>loadAll(true),3000);
+  }finally{ST.busy=false;}}
 function fillUpSel(){const opts=ST.plots.filter(p=>p.level<MAXLVL).sort((a,b)=>a.level-b.level||a.id-b.id).map(p=>{const ok=stonesEnough(p.level+1);return `<option value="${p.id}" data-lvl="${p.level}">#${p.id} L${p.level}→${p.level+1}${ok===true?' ✓':ok===false?' ✗':''}</option>`;}).join("");$("upSel").innerHTML=opts||'<option>—</option>';upSelChanged();}
 function upSelChanged(){const o=$("upSel").selectedOptions[0];if(!o||!o.dataset){$("upCost").textContent="";return;}
   const lvl=Number(o.dataset.lvl),tgt=lvl+1,c=COST[tgt];if(!c){$("upCost").textContent="…";return;}
@@ -1068,34 +1124,12 @@ async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id
   if(!await guardChain(o))return;
   ST.busy=true;
   try{
-    // buy any shortfall — re-reading balances + the live book each round so filled listings self-heal
-    for(let round=0;round<6;round++){
-      ST.stones=await stoneBatch(ST.addr);
-      const missing={};c.ids.forEach((sid,k)=>{const m=Math.max(0,c.amts[k]-(ST.stones[sid]||0));if(m>0)missing[sid]=m;});
-      if(!Object.keys(missing).length)break;
-      o.innerHTML='<div class="status s-wait">Reading the market…</div>';await loadMarket();
-      const plan=planBuy(missing),shortKeys=Object.keys(plan.short);
-      if(shortKeys.length){err(o,'Can\'t buy '+shortKeys.map(s=>STONE[s][0]).join("/")+' — none listed. Mine via Motherlode.');return;}
-      if(!plan.calls.length){err(o,'No sellers for the missing ore right now — try again shortly.');return;}
-      const costWei=plan.costWei,costD=Number(costWei)/1e18;
-      if(ST.drill<costD){err(o,'Need '+fmt(costD)+' DRILL to buy materials, have '+fmt(ST.drill)+'.');return;}
-      if((ST.mktAllow||0n)<costWei){o.innerHTML='<div class="status s-wait">Approving '+fmt(costD)+' DRILL for the market…</div>';
-        try{const ha=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.market2)+w(costWei*3n),value:"0x0"});log("APPROVE mkt "+ha);await waitTx(ha);ST.mktAllow=costWei*3n;}
-        catch(e){err(o,'Approve rejected: '+decodeErr(e));return;}}
-      let lastH,stale=false;const data=encBuyCombined(plan.calls,costWei,Math.floor(Date.now()/1000)+1200); // every listing (v2 + legacy) in ONE tx
-      o.innerHTML='<div class="status s-wait">Buying materials — 1 tx, '+plan.calls.length+' listing'+(plan.calls.length>1?'s':'')+' ('+fmt(costD)+' DRILL)…</div>';
-      try{await ethCall(A.market2,data,ST.addr);}
-      catch(e){const reason=decodeErr(e);if(/re-planning|listing|price moved|deadline/.test(reason)){stale=true;}else{err(o,'Buy reverted: '+reason);return;}}
-      if(!stale){try{lastH=await send({from:ST.addr,to:A.market2,data,value:"0x0"});log("BUY "+lastH);}catch(e){err(o,'Buy rejected: '+decodeErr(e));return;}}
-      if(lastH){o.innerHTML='<div class="status s-wait">Confirming purchase…</div>';await waitTx(lastH);}
-      if(!stale&&!lastH)break; // nothing bought and not stale → done
-    }
-    ST.stones=await stoneBatch(ST.addr);
-    if(c.ids.some((sid,k)=>ST.stones[sid]<c.amts[k])){err(o,'Market too thin to fill the order right now — try again shortly.');return;}
+    const need={};c.ids.forEach((sid,k)=>{need[sid]=(need[sid]||0)+c.amts[k];});
+    if(!await ensureMaterials(need,o))return;
     o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+tgt+'…</div>';
     await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);
   }finally{ST.busy=false;}}
-window.upgradePlot=upgradePlot;
+window.upgradePlot=upgradePlot;window.upToggle=upToggle;window.upSelAll=upSelAll;window.upgradeSelected=upgradeSelected;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
