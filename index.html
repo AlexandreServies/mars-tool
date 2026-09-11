@@ -561,7 +561,7 @@ function renderSupply(){const el=$("supplyBody");if(!el)return;const c=ST.supply
   const mn=Math.min(...ser),mx=Math.max(...ser),pad=(mx-mn)*0.08||mx*0.01||1,lo=mn-pad,hi=mx+pad,W=100,H=32,X=k=>(n>1?k/(n-1)*W:W),Y=v=>H-(v-lo)/(hi-lo)*H;
   const pts=ser.map((v,k)=>X(k).toFixed(2)+" "+Y(v).toFixed(2)),line="M"+pts.join(" L"),area=line+" L"+W+" "+H+" L0 "+H+" Z";
   const ago24=n>25?ser[n-25]:ser[0],chg=ago24?ser[n-1]/ago24-1:0,col=chg>0.005?'var(--green)':chg<-0.005?'var(--red)':'var(--mut)';
-  const days=Math.floor((n-1)/24),ticks=[];for(let d=1;d<=days;d++)ticks.push(`<text x="${X(d*24).toFixed(1)}" y="${H+6}" font-size="3.2" text-anchor="middle" fill="var(--mut2)">+${d}d</text>`);
+  const days=Math.floor((n-1)/24),ticks=[];for(let d=1;d<=days;d++){if(X(d*24)>W-9)continue;ticks.push(`<text x="${X(d*24).toFixed(1)}" y="${H+6}" font-size="3.2" text-anchor="middle" fill="var(--mut2)">+${d}d</text>`);}
   el.innerHTML=`<svg viewBox="-13 -1 ${W+14} ${H+8}" style="width:100%;display:block" preserveAspectRatio="none">
     <path d="${area}" fill="var(--drill)" opacity=".13"/><path d="${line}" fill="none" stroke="var(--drill)" stroke-width="1" vector-effect="non-scaling-stroke"/>
     <text x="-1" y="3" font-size="3.2" text-anchor="end" fill="var(--mut)">${fmtK(mx)}</text><text x="-1" y="${H}" font-size="3.2" text-anchor="end" fill="var(--mut)">${fmtK(mn)}</text>
