@@ -269,9 +269,9 @@ const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slot
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buyCombined:"0x49263a31",
   list2:"0x2a5c2925",cancelListing:"0x40e58ee5",setApprovalForAll:"0xa22cb465",isApprovedForAll:"0xe985e9c5",safeTransferFrom:"0xf242432a",safeBatchTransferFrom:"0x2eb2c2d6",
-  // Moon Refinery — no ABI published; recovered from the admin's own transactions and eth_call probes (see refinery block below)
-  refUpgrade:"0x1518905b",refBuySlots:"0x572315f9",refStart:"0x6c3187fc",refClaim:"0xd639ac96",refStateOf:"0x45b4903a",refCanStart:"0x6baa471b",
-  refJobOf:"0xbbd89b9b",refAvail:"0xd6b9b24f",refNextJob:"0xb0c2aa5e",refLimits:"0x860aefcf",refTierOf:"0xaa2db6ab",refRecipe:"0x151b5a2b",
+  // Moon Refinery — ABI from the site's refinery module (assets/refinery-*.js); every selector checked against live transactions
+  refUpgrade:"0x1518905b",refBuySlots:"0x572315f9",refStake:"0x6c3187fc",refGrind:"0x68f6e4cf",refCollect:"0x793dedf4",refJobsOf:"0x6f10773e",refGrindJobOf:"0x7f413c2a",
+  refLatestRecipe:"0x72b4087b",refRecipeOf:"0x151b5a2b",refGrinding:"0x6c037e78",refGrindLimits:"0x44acca8a",refLimits:"0x860aefcf",refTierOf:"0xaa2db6ab",refStateOf:"0x45b4903a",
   refCfgVer:"0xdd64d24d",refPublic:"0x07560ae6",refPaused:"0xb722e919"};
 const RIGCAP=100;
 const DEPTH_UNITS=10; // ask = lowest price reaching this depth — capped at 10% of the stone's book (min 1 unit) so thin stones still price
@@ -343,11 +343,13 @@ function loadScript(src){return new Promise((res,rej)=>{const s=document.createE
 async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error){const er=new Error(j.error.message||JSON.stringify(j.error));er.data=(j.error.data&&j.error.data.data)||j.error.data;throw er;}return j.result;}
 // contract error selectors -> readable reason (from the game's own decoder)
 const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x711b0aa3":()=>"listing filled — re-planning","0x322e5520":()=>"listing partially filled — re-planning","0xe76fd45a":()=>"bid gone","0x863b7b1f":()=>"buyer lacks DRILL/approval","0xb39be4d2":()=>"lot over 9,999 units","0xfe30bf0c":()=>"more than 5 stones in one listing","0xb2a1e3df":()=>"same stone twice in one listing","0xb60c2453":()=>"price moved — re-planning","0xc56873ba":()=>"deadline passed — re-planning",
-  // Moon Refinery
-  "0x70d70610":()=>"refinery: not available at this level (already built, or build first)","0x848084dd":()=>"refinery: no free slot","0x07f782c8":()=>"refinery: price moved — refresh",
-  "0xf9344d64":()=>"refinery: too many jobs or units at once","0x07cc321c":()=>"refinery: bad config","0x71c8f460":()=>"refinery: unknown job","0x9488aaa6":()=>"refinery: nothing ready yet",
-  "0x9015f923":()=>"refinery: not your job","0xb99f6e32":()=>"refinery: waiting for the game's reveal","0xd1bf1a92":()=>"refinery: bad reveal word","0x21a9b143":()=>"refinery: no such tier",
-  "0xcb4a0ea4":()=>"refinery: settings changed — refresh and retry","0x43673f84":()=>"refinery: waiting for the game's reveal (no word yet)","0x03dee4c5":()=>"refinery: not enough Slush","0xc15c60b4":()=>"refinery: closed to the public right now (admin only)"};
+  // Moon Refinery (error names from the site's ABI)
+  "0x169c48b7":()=>"refinery: paused by the game","0xc15c60b4":()=>"refinery: closed to the public right now (admin only)","0x07cc321c":()=>"refinery: bad config","0x67a2cc26":()=>"refinery: bad recipient",
+  "0x21a9b143":()=>"refinery: no such tier","0xf9344d64":()=>"refinery: too many jobs or outputs at once","0x203d82d8":()=>"refinery: deadline passed — retry","0xd1d0aa79":()=>"refinery: over the per-ore grinding limit",
+  "0xdcab811b":()=>"refinery: over the Slush limit per grinding job","0x71c8f460":()=>"refinery: unknown job","0xd1bf1a92":()=>"refinery: bad reveal word","0x43673f84":()=>"refinery: needs the game's signed reveal — collect on the site",
+  "0xb97c5705":()=>"refinery: nothing ready to collect","0x9015f923":()=>"refinery: not your job","0x9488aaa6":()=>"refinery: not ready yet","0x07f782c8":()=>"refinery: price moved — refresh and retry",
+  "0xb99f6e32":()=>"refinery: reveal pending — collect on the site","0x848084dd":()=>"refinery: no free slot","0xcb4a0ea4":()=>"refinery: settings changed — refresh and retry","0x70d70610":()=>"refinery: tier not available (already built, or build first)",
+  "0x90b8ec18":()=>"refinery: transfer failed","0x03dee4c5":()=>"refinery: not enough Slush or stones"};
 function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;else if(d&&typeof d.data==="string")hex=d.data;if(!hex){const mm=((e&&e.message)||"").match(/0x[0-9a-fA-F]{8,}/);if(mm)hex=mm[0];}hex=(hex||"").toLowerCase();
   if(hex.indexOf("0x")===0&&hex.length>=10){const sel=hex.slice(0,10);
     if(sel==="0x08c379a0"){try{const len=parseInt(hex.slice(74,138),16);const bytes=hex.slice(138,138+len*2);return decodeURIComponent(bytes.replace(/(..)/g,"%$1"));}catch(_){}}
@@ -735,7 +737,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   renderPort();renderDeploy();renderRig();renderRigs();renderLevels();renderStones();fillUpSel();loadCosts().then(()=>{fillUpSel();renderUpBar();});
-  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();renderUpBar();
+  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();renderUpBar();renderRefinery();
   if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
   startAuto();
@@ -1041,75 +1043,83 @@ function renderRoi(){const o=$("upSel").selectedOptions[0],tbl=$("roiTbl"),bestE
     return `<tr${b?' style="background:#171008"':''}><td>${r.L}${b?' <span class=gold>◄</span>':''}</td><td class=n>${fmt(r.dwt)}</td><td class="n ${r.mineOnly?'muted':''}">${r.mineOnly?'mine':fmt(r.cost)}</td><td class="n ${r.roi?(good?'grn':'red'):'muted'}">${r.roi?fmt(r.roi,1):'–'}</td><td class="n muted">${fmt(r.cumWt)}</td><td class="n muted">+${(100*r.cumWt/tot).toFixed(2)}%</td></tr>`;}).join("")+"</tbody></table>";}
 
 // ---- write actions ----
-// ---- Moon Refinery (2026-09-11) — proxy 0x035fd0… (UUPS → impl 0xe5f629…). Nothing is published, so every selector and
-// layout below comes from the admin's own transactions on it and from eth_call probes (all verified against the live contract):
-//   upgrade(uint8 level, uint64 cfgVer, uint256 maxCost, uint256 deadline)   build = level 1, burns 100 DRILL (only level 1 exists so far)
-//   buySlots(uint32 n, uint64 cfgVer, uint256 maxCost, uint256 deadline)     100 DRILL each (burned); 1 base slot + 4 bought = 5 max
-//   start((uint8 recipe,uint16 units)[], uint64 cfgVer, uint256 maxSlush, uint256 deadline)   ≤20 units/job, 12 Slush per unit (burned),
-//        one unit ripens every 2.4 h (8,640 s) — pinned on the archive: the admin's jobs ticked at exactly +8,640 / +17,280 / +25,920 s
-//   claim(jobId, …)  reverts MissingWord until the game sets the job's random word (no job has one yet), so the card simulates the
-//        claim for every ready job and shows the button only when that passes — the call's exact layout is unverified until then.
-// cfgVer must match configVersion() (StaleConfig otherwise); DRILL and Slush are burned by the contract itself — no approvals needed.
-const REF_LS="mars_ref_v1",REF_RECIPE=1;
-const U256=(r,i=0)=>r&&r.success&&r.data&&r.data.length>=66+64*i?BigInt("0x"+r.data.slice(2+64*i,66+64*i)):0n;
-function refCache(){const me=(ST.addr||"").toLowerCase();try{const c=JSON.parse(localStorage.getItem(REF_LS)||"null");if(c&&c.addr===me&&Array.isArray(c.ids))return c;}catch(e){}return{addr:me,scanned:0,ids:[],closed:[]};}
+// ---- Moon Refinery — proxy 0x035fd0… (UUPS). ABI from the site's refinery module; selectors and calldata layouts verified against live txs.
+//   upgrade(uint8 nextTier, uint64 version, uint256 maxDrill, uint256 deadline)   build = tier 1; DRILL burned (price from tierOf(1))
+//   buySlots(uint32 count, uint64 version, uint256 maxDrill, uint256 deadline)    DRILL burned; slots = includedSlots + up to maxExtraSlots bought
+//   stakeMany((uint8 tier,uint32 outputs)[], uint64 version, uint256 maxSlush, uint256 deadline)   refine: Slush burned now, one output ripens
+//        every recipe.secondsPerOutput; each output is a random ore (recipe weights) or a DRILL pouch
+//   grindMany((uint256[12] amounts)[], uint64 version, uint256 minSlush, uint256 deadline)         grind stones → Slush, paid when the job ends
+//   collectMany(uint256[] ids, (bytes32 blockHash, bytes signature)[] words, uint32 maxOutputs)   refine outputs need the game's signed reveal
+//        word (the site fetches it from /api/refinery/words with a signed-in session), so those are collected on the site; grinding jobs
+//        collect with an empty word straight from here.  jobsOf(player, cursor, limit, activeOnly) lists my jobs; recipeId 0 = grinding job.
+//   version must equal configVersion() (StaleConfig otherwise). DRILL, Slush and stones are burned by the contract itself — no approvals.
+const REF_TIER=1,REF_SITE=GAME+"/moon";
+const U256=(r,i=0)=>r&&r.success&&r.data&&r.data.length>=66+64*i?BigInt("0x"+r.data.slice(2+64*i,66+64*i)):0n,N256=(r,i=0)=>Number(U256(r,i)),ARR=(r,i,n)=>Array.from({length:n},(_,k)=>U256(r,i+k));
 async function refRefresh(){const me=ST.addr;if(!me)return;if(ST.refAddr!==me){ST.ref=null;ST.refAddr=me;}
-  const d=decAgg3(await ethCall(MC3,encAgg3([S.refCfgVer,S.refPublic,S.refPaused,S.refLimits,S.refTierOf+w(1),S.refRecipe+w(REF_RECIPE),S.refNextJob,S.refStateOf+wa(me),S.refCanStart+wa(me)].map(data=>({to:A.refinery,data})))));
-  const N=(r,i)=>Number(U256(r,i));
-  // limits() = [unitsMax, batchMax, ?, ?, slotsMax, ?, slotPrice]; tierOf(1) = [buildCost, baseSlots, …]; recipe(1) = [on, ?, cycleSec, slushPerUnit, …]
-  // stateOf(me) = [level, ?, slotsBought, activeJobs, jobsStarted]
-  const R={cfgVer:N(d[0]),pub:N(d[1])===1,paused:N(d[2])===1,unitsMax:N(d[3],0)||20,batchMax:N(d[3],1)||8,slotsMax:N(d[3],4)||5,slotWei:U256(d[3],6),buildWei:U256(d[4],0),baseSlots:N(d[4],1)||1,
-    cycleSec:N(d[5],2)||8640,slushPerUnit:N(d[5],3)||12,nextJob:N(d[6]),level:N(d[7],0),slotsBought:N(d[7],2),active:N(d[7],3),started:N(d[7],4),canStart:N(d[8])===1,jobs:[]};
-  R.built=R.level>0;R.slots=R.built?R.baseSlots+R.slotsBought:0;
-  // my jobs: ids are global, so scan jobOf() only for ids created since the last look (owner == me), cached per address
-  const c=refCache(),meL=me.toLowerCase();
-  for(let s=Math.max(1,c.scanned+1);s<R.nextJob;s+=200){const ids=[];for(let i=s;i<Math.min(s+200,R.nextJob);i++)ids.push(i);
-    const dd=decAgg3(await ethCall(MC3,encAgg3(ids.map(id=>({to:A.refinery,data:S.refJobOf+w(id)})))));
-    dd.forEach((r,k)=>{if(r.success&&r.data.length>=66&&("0x"+r.data.slice(26,66)).toLowerCase()===meL&&!c.ids.includes(ids[k]))c.ids.push(ids[k]);});}
-  c.scanned=Math.max(c.scanned,R.nextJob-1);
-  const open=c.ids.filter(id=>!c.closed.includes(id));
-  if(open.length){const calls=[];open.forEach(id=>{calls.push({to:A.refinery,data:S.refJobOf+w(id)});calls.push({to:A.refinery,data:S.refAvail+w(id)});});
-    const dd=decAgg3(await ethCall(MC3,encAgg3(calls))),now=Math.floor(Date.now()/1000);
-    // jobOf = [owner, recipe, units, ?, startedAt, revealBlock, status, slushPaid, ?, ?]; availableOf = ripe units not yet claimed
-    open.forEach((id,k)=>{const j=dd[2*k];if(!j||!j.success)return;const units=Number(U256(j,2)),startTs=Number(U256(j,4)),avail=Number(U256(dd[2*k+1]));
-      const done=Math.min(units,Math.max(0,Math.floor((now-startTs)/R.cycleSec)));
-      if(done>=units&&avail===0){c.closed.push(id);return;}   // fully ripe and fully claimed
-      R.jobs.push({id,units,startTs,done,avail,next:done<units?startTs+(done+1)*R.cycleSec:0});});
-    // a ready job is claimable only once the game has set its random word: simulate the claim and show the button only when it passes
-    await Promise.all(R.jobs.filter(j=>j.avail>0).map(async j=>{try{await ethCall(A.refinery,refData.claim(j.id,j.avail),me);j.claimable=true;}catch(e){j.claimable=false;j.why=decodeErr(e);}}));}
-  try{localStorage.setItem(REF_LS,JSON.stringify(c));}catch(e){}
+  const rq=[S.refCfgVer,S.refPublic,S.refPaused,S.refLimits,S.refTierOf+w(1),S.refLatestRecipe+w(REF_TIER),S.refGrinding,S.refGrindLimits,S.refStateOf+wa(me),S.refJobsOf+wa(me)+w(0)+w(60)+w(1)];
+  const d=decAgg3(await ethCall(MC3,encAgg3(rq.map(data=>({to:A.refinery,data})))));
+  // limits = (maxOutputsPerJob, stakeBatch, collectBatch, outputBudget, maxExtraSlots, revealDelay, slotPrice) · tierOf = (drillPrice, includedSlots, oreCost[12])
+  // grinding = (enabled, stonesPerHour[3], maxSeconds, maxStones, slushPerStonePpm[12]) · grindingLimits = (maxSlushPerJob, maxPerOre[12])
+  // stateOf = ((tier, includedSlots, boughtSlots), activeJobs, jobsStarted)
+  const R={cfgVer:N256(d[0]),pub:N256(d[1])===1,paused:N256(d[2])===1,unitsMax:N256(d[3],0)||20,stakeBatch:N256(d[3],1)||8,extraMax:N256(d[3],4),slotWei:U256(d[3],6),buildWei:U256(d[4],0),includedSlots:N256(d[4],1)||1,
+    recipeId:N256(d[5]),grindOn:N256(d[6],0)===1,stonesPerHour:N256(d[6],1),grindMaxSec:N256(d[6],4),grindPpm:ARR(d[6],6,12).map(Number),grindMaxSlush:N256(d[7],0),grindMaxPerOre:ARR(d[7],1,12).map(Number),
+    tier:N256(d[8],0),boughtSlots:N256(d[8],2),active:N256(d[8],3),started:N256(d[8],4),jobs:[]};
+  R.built=R.tier>0;R.slots=R.built?R.includedSlots+R.boughtSlots:0;R.slotsMax=R.includedSlots+R.extraMax;
+  // recipe = (tier, enabled, secondsPerOutput, slushPerOutput, drillWeiPerSlush, weights[12], pouchWeight, pouchWeights[5], pouchAmounts[5]) — cached by id
+  const old=ST.ref&&ST.ref.recipe;if(old&&old.id===R.recipeId)R.recipe=old;
+  else{const r=decAgg3(await ethCall(MC3,encAgg3([{to:A.refinery,data:S.refRecipeOf+w(R.recipeId)}])))[0];R.recipe={id:R.recipeId,secPerOut:N256(r,2)||4320,slushPerOut:N256(r,3)||12,weights:ARR(r,5,12).map(Number),pouchW:N256(r,17),pouchWs:ARR(r,18,5).map(Number),pouchAmts:ARR(r,23,5).map(x=>Number(x)/1e18)};}
+  // my active jobs: jobsOf → (ids[], Job[] of 10 static words: owner, recipeId, total, collected, startedAt, revealBlock, signerEpoch, slushBurned, rewardWei, entropy)
+  const jr=d[9];if(jr&&jr.success&&jr.data.length>130){const W=i=>U256(jr,i);const oi=Number(W(0))/32,oj=Number(W(1))/32,n=Number(W(oi)),nj=Number(W(oj)),now=Math.floor(Date.now()/1000),grinds=[];
+    for(let k=0;k<Math.min(n,nj);k++){const id=Number(W(oi+1+k)),b=oj+1+k*10,recipe=Number(W(b+1)),total=Number(W(b+2)),collected=Number(W(b+3)),startedAt=Number(W(b+4)),sealed=W(b+9)!==0n;
+      if(recipe===0){grinds.push(id);continue;}
+      const done=Math.min(total,Math.max(0,Math.floor((now-startedAt)/R.recipe.secPerOut)));R.jobs.push({id,kind:"refine",total,collected,done,ready:Math.max(0,done-collected),sealed,next:done<total?startedAt+(done+1)*R.recipe.secPerOut:0});}
+    if(grinds.length){const gd=decAgg3(await ethCall(MC3,encAgg3(grinds.map(id=>({to:A.refinery,data:S.refGrindJobOf+w(id)})))));   // grindJobOf = (readyAt, slush)
+      grinds.forEach((id,k)=>{const readyAt=N256(gd[k],0),slush=N256(gd[k],1);R.jobs.push({id,kind:"grind",slush,ready:readyAt&&readyAt<=now?1:0,next:readyAt>now?readyAt:0});});}}
   R.jobs.sort((a,b)=>a.id-b.id);ST.ref=R;}
 function fmtSec(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h>=48?Math.floor(h/24)+"d "+(h%24)+"h":h?h+"h "+String(m).padStart(2,"0")+"m":m+"m";}
-// fill every free slot with the biggest job the Slush allows (≤ batchMax jobs per tx)
-function refStartPlan(free){const R=ST.ref;let slush=ST.slush||0;const jobs=[];for(let k=0;k<Math.min(free,R.batchMax);k++){const u=Math.min(R.unitsMax,Math.floor(slush/R.slushPerUnit));if(u<=0)break;jobs.push(u);slush-=u*R.slushPerUnit;}const units=jobs.reduce((a,b)=>a+b,0);return{jobs,units,slush:units*R.slushPerUnit};}
+// expected DRILL per output at the given per-ore prices: ore weights + the DRILL-pouch ladder
+function refOutEv(px){const rc=ST.ref&&ST.ref.recipe;if(!rc||!px)return 0;let ev=0;rc.weights.forEach((wt,i)=>{ev+=wt/1e6*(px[i]||0);});const pouch=rc.pouchWs.reduce((a,pw,k)=>a+pw/1e6*rc.pouchAmts[k],0);return ev+rc.pouchW/1e6*pouch;}
+// fill every free slot with the biggest refine job the Slush allows (≤ stakeBatch jobs per tx)
+function refStartPlan(free){const R=ST.ref;let slush=ST.slush||0;const jobs=[];for(let k=0;k<Math.min(free,R.stakeBatch);k++){const u=Math.min(R.unitsMax,Math.floor(slush/R.recipe.slushPerOut));if(u<=0)break;jobs.push(u);slush-=u*R.recipe.slushPerOut;}const units=jobs.reduce((a,b)=>a+b,0);return{jobs,units,slush:units*R.recipe.slushPerOut};}
+// one grinding job: the stones worth the least DRILL per Slush first, up to the per-ore caps, the Slush cap and the time cap
+function refGrindPlan(){const R=ST.ref;if(!R||!R.grindOn||!R.grindMaxSlush)return null;const px=ST.ask||[],amts=Array(12).fill(0);let budget=BigInt(R.grindMaxSlush)*1000000n,stonesLeft=R.stonesPerHour?Math.floor(R.stonesPerHour*R.grindMaxSec/3600):1e9,stones=0,val=0;
+  const cand=STONE.map((_,i)=>i).filter(i=>(ST.stones[i]||0)>0&&R.grindPpm[i]>0&&R.grindMaxPerOre[i]>0).sort((a,b)=>(px[a]||0)/R.grindPpm[a]-(px[b]||0)/R.grindPpm[b]);
+  for(const i of cand){const ppm=BigInt(R.grindPpm[i]),a=Math.min(ST.stones[i],R.grindMaxPerOre[i],Number(budget/ppm),stonesLeft);if(a<=0)continue;amts[i]=a;budget-=BigInt(a)*ppm;stonesLeft-=a;stones+=a;val+=a*(px[i]||0);}
+  if(!stones)return null;const slush=Number(amts.reduce((s,a,i)=>s+BigInt(a)*BigInt(R.grindPpm[i]),0n)/1000000n);if(slush<1)return null;
+  return{amts,stones,slush,minSlush:Math.max(1,slush-1),hours:R.stonesPerHour?stones/R.stonesPerHour:0,val,desc:amts.map((a,i)=>a?fmt(a)+"×"+STONE[i][0]:null).filter(Boolean).join(" + ")};}
 function renderRefinery(){const R=ST.ref,tbl=$("refTbl");if(!tbl)return;const slush=ST.slush||0,sw='<span class=swatch style="background:'+SLUSH.color+'"></span>';
   if(!R){$("refR").textContent="";$("refSlush").innerHTML=sw+'Slush <b>'+(ST.slush==null?'…':fmt(slush))+'</b> · <span class="muted">reading the refinery…</span>';$("refBar").innerHTML='';tbl.innerHTML='';return;}
-  const units=Math.floor(slush/R.slushPerUnit),fullJobs=Math.floor(units/R.unitsMax),perDay=R.slots*86400/R.cycleSec;
-  $("refR").textContent=R.built?"L"+R.level+" · "+R.active+"/"+R.slots+" slots busy":"not built";
-  $("refSlush").innerHTML=sw+'Slush <b>'+fmt(slush)+'</b> = '+fmt(units)+' units · '+fmt(fullJobs)+' full jobs'+(R.built&&perDay?' · '+fmt(units/perDay,1)+' days of feed':'')+(R.paused?' · <span class="red">paused</span>':(!R.pub?' · <span class="red">not public yet</span>':''));
+  const rc=R.recipe,units=Math.floor(slush/rc.slushPerOut),fullJobs=Math.floor(units/R.unitsMax),perDay=R.slots*86400/rc.secPerOut,evA=refOutEv(ST.ask),evB=refOutEv(ST.bid);
+  $("refR").textContent=R.built?"L"+R.tier+" · "+R.active+"/"+R.slots+" slots busy":"not built";
+  $("refSlush").innerHTML=sw+'Slush <b>'+fmt(slush)+'</b> = '+fmt(units)+' outputs · '+fmt(fullJobs)+' full jobs'+(R.built&&perDay?' · '+fmt(units/perDay,1)+' days of feed':'')
+    +(evA?'<br>1 output (12 Slush, '+fmt(rc.secPerOut/3600,1)+' h) ≈ <b>'+fmt(evB,2)+'</b> DRILL dumped · '+fmt(evA,2)+' at ask'+(R.built&&perDay?' → <b>'+fmt(perDay*evB)+'</b>–'+fmt(perDay*evA)+' DRILL/day at '+R.slots+' slots':''):'')
+    +(R.paused?' · <span class="red">paused</span>':(!R.pub?' · <span class="red">not public yet</span>':''));
   const dis='',bar=[];   // buttons stay clickable: a tap explains itself in the status line (no key / closed by the game / reverted)
-  if(!R.built)bar.push('<button class="mini g" onclick="refBuild()"'+dis+'>🏗 Build · '+fmt(Number(R.buildWei)/1e18)+' DRILL</button><span class="sub">burns the DRILL · '+R.baseSlots+' slot · '+R.unitsMax+' units per job · 1 unit per '+fmt(R.cycleSec/3600,1)+' h</span>');
+  if(!R.built)bar.push('<button class="mini g" onclick="refBuild()"'+dis+'>🏗 Build · '+fmt(Number(R.buildWei)/1e18)+' DRILL</button><span class="sub">burns the DRILL · '+R.includedSlots+' slot · '+R.unitsMax+' outputs per job</span>');
   else{const more=R.slotsMax-R.slots;if(more>0)bar.push('<button class="mini" onclick="refBuySlots('+more+')"'+dis+' title="burns the DRILL — each slot runs one job">＋'+more+' slot'+(more>1?'s':'')+' · '+fmt(more*Number(R.slotWei)/1e18)+' DRILL</button>');
     const free=Math.max(0,R.slots-R.active),plan=refStartPlan(free);
-    if(free>0)bar.push(plan.jobs.length?'<button class="mini g" onclick="refStart()"'+dis+' title="'+plan.jobs.map(u=>u+' units').join(' + ')+' · Slush is burned at start">▶ Start '+plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' · '+fmt(plan.units)+' units · '+fmt(plan.slush)+' Slush</button>':'<span class="sub">'+free+' free slot'+(free>1?'s':'')+' · need '+R.slushPerUnit+' Slush per unit</span>');
-    else if(R.slots)bar.push('<span class="sub">all '+R.slots+' slots busy</span>');}
+    if(free>0)bar.push(plan.jobs.length?'<button class="mini g" onclick="refStart()"'+dis+' title="'+plan.jobs.map(u=>u+' outputs').join(' + ')+' · Slush is burned at start">▶ Start '+plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' · '+fmt(plan.units)+' outputs · '+fmt(plan.slush)+' Slush</button>':'<span class="sub">'+free+' free slot'+(free>1?'s':'')+' · need '+rc.slushPerOut+' Slush per output</span>');
+    else if(R.slots)bar.push('<span class="sub">all '+R.slots+' slots busy</span>');
+    const g=free>0?refGrindPlan():null;if(g)bar.push('<button class="mini sec" onclick="refGrind()"'+dis+' title="'+g.desc+' → '+fmt(g.slush)+' Slush (≈ '+fmt(g.slush/rc.slushPerOut*evB,1)+' DRILL of outputs) · sells for ≈ '+fmt(g.val,1)+' DRILL today · keeps a slot busy '+fmtSec(g.hours*3600)+'">⚙ Grind '+fmt(g.stones)+' stones → '+fmt(g.slush)+' Slush · '+fmtSec(g.hours*3600)+'</button>');}
   if(R.paused||!R.pub)bar.push('<span class="red" style="font-size:11px;flex-basis:100%">🔒 '+(R.paused?'paused by the game':'the game has it closed to the public right now (admin only)')+' — the buttons will say so until they open it</span>');
   $("refBar").innerHTML=bar.join("");
   if(!R.jobs.length){tbl.innerHTML=R.built?'<div class="sub">no jobs running</div>':'';return;}
   const now=Math.floor(Date.now()/1000);
-  tbl.innerHTML='<table><thead><tr><th>Job</th><th class=n>Units</th><th class=n title="units ripened so far">Done</th><th class=n title="ripe units not yet claimed">Ready</th><th title="next unit ripens in">Next</th><th></th></tr></thead><tbody>'+R.jobs.map(j=>{
-    const act=j.avail>0?(j.claimable?'<button class="mini g" onclick="refClaim('+j.id+','+j.avail+')"'+dis+'>⬇ Claim '+j.avail+'</button>':'<span class="muted" title="'+(j.why||'waiting for the game\'s reveal')+' — claiming opens once the game sets this job\'s random word">⏳ reveal</span>'):'';
-    return '<tr><td class=mono>#'+j.id+'</td><td class=n>'+j.units+'</td><td class=n>'+j.done+'/'+j.units+'</td><td class="n'+(j.avail?' gold':'')+'">'+(j.avail||'–')+'</td><td>'+(j.next?fmtSec(j.next-now):'finished')+'</td><td class="n act">'+act+'</td></tr>';}).join('')+'</tbody></table>';}
+  tbl.innerHTML='<table><thead><tr><th>Job</th><th>Type</th><th class=n title="collected / total outputs (grinding: Slush it pays)">Out</th><th class=n title="ripe outputs not yet collected">Ready</th><th title="next output ripens in">Next</th><th></th></tr></thead><tbody>'+R.jobs.map(j=>{
+    const act=j.kind==="grind"?(j.ready?'<button class="mini g" onclick="refCollectGrind('+j.id+')"'+dis+'>⬇ Collect</button>':''):(j.ready>0?'<button class="mini" onclick="window.open(REF_SITE,\'_blank\')" title="refine outputs need the game\'s signed reveal word — the site fetches it for your session">↗ Collect on site</button>':'');
+    return '<tr><td class=mono>#'+j.id+'</td><td>'+(j.kind==="grind"?'grind':'refine')+'</td><td class=n>'+(j.kind==="grind"?fmt(j.slush)+' Slush':j.collected+'/'+j.total)+'</td><td class="n'+(j.ready?' gold':'')+'">'+(j.ready||'–')+'</td><td>'+(j.next?fmtSec(j.next-now):'finished')+'</td><td class="n act">'+act+'</td></tr>';}).join('')+'</tbody></table>';}
 const refDeadline=()=>Math.floor(Date.now()/1000)+1200;
-const refData={build:R=>S.refUpgrade+w(1)+w(R.cfgVer)+w(R.buildWei)+w(refDeadline()),
+const refData={build:R=>S.refUpgrade+w(REF_TIER)+w(R.cfgVer)+w(R.buildWei)+w(refDeadline()),
   slots:(R,n)=>S.refBuySlots+w(n)+w(R.cfgVer)+w(BigInt(n)*R.slotWei)+w(refDeadline()),
-  start:(R,jobs)=>S.refStart+w(128)+w(R.cfgVer)+w(jobs.reduce((a,u)=>a+u,0)*R.slushPerUnit)+w(refDeadline())+w(jobs.length)+jobs.map(u=>w(REF_RECIPE)+w(u)).join(""),
-  claim:(id,n)=>S.refClaim+w(id)+w(n)+w(0)};
+  stake:(R,jobs)=>S.refStake+w(128)+w(R.cfgVer)+w(jobs.reduce((a,u)=>a+u,0)*R.recipe.slushPerOut)+w(refDeadline())+w(jobs.length)+jobs.map(u=>w(REF_TIER)+w(u)).join(""),
+  grind:(R,g)=>S.refGrind+w(128)+w(R.cfgVer)+w(g.minSlush)+w(refDeadline())+w(1)+g.amts.map(w).join(""),
+  collectGrind:id=>S.refCollect+w(96)+w(160)+w(1)+w(1)+w(id)+w(1)+w(32)+w(0)+w(64)+w(0)};   // collectMany([id], [(0x0, "")], 1) — the layout the site uses for grinding jobs
 async function refBuild(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;await simSend(A.refinery,refData.build(R),o,'Refinery built — '+fmt(Number(R.buildWei)/1e18)+' DRILL burned');}
 async function refBuySlots(n){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;await simSend(A.refinery,refData.slots(R,n),o,n+' slot'+(n>1?'s':'')+' bought — '+fmt(n*Number(R.slotWei)/1e18)+' DRILL burned');}
 async function refStart(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;const plan=refStartPlan(Math.max(0,R.slots-R.active));if(!plan.jobs.length){err(o,'Nothing to start — no free slot or no Slush.');return;}
-  await simSend(A.refinery,refData.start(R,plan.jobs),o,plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' started — '+fmt(plan.slush)+' Slush in');}
-async function refClaim(id,n){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.claim(id,n),o,'Job #'+id+' claimed');}
+  await simSend(A.refinery,refData.stake(R,plan.jobs),o,plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' started — '+fmt(plan.slush)+' Slush in');}
+async function refGrind(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;const g=refGrindPlan();if(!g){err(o,'Nothing to grind.');return;}await simSend(A.refinery,refData.grind(R,g),o,'Grinding '+g.desc+' → '+fmt(g.slush)+' Slush in '+fmtSec(g.hours*3600));}
+async function refCollectGrind(id){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.collectGrind(id),o,'Grinding job #'+id+' collected');}
 async function guardChain(outEl){if(!ST.canSign||!WALLET){outEl.innerHTML='<div class="status s-err">Connect your key first (view-only can\'t sign).</div>';return false;}return true;}
 async function simSend(to,data,outEl,okmsg){
   try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+decodeErr(e)+'</div>';return;}
@@ -1209,7 +1219,7 @@ async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id
     o.innerHTML='<div class="status s-wait">Upgrading #'+id+' → L'+tgt+'…</div>';
     await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);
   }finally{ST.busy=false;}}
-window.upgradePlot=upgradePlot;window.upToggle=upToggle;window.upSelAll=upSelAll;window.upgradeSelected=upgradeSelected;window.refBuild=refBuild;window.refBuySlots=refBuySlots;window.refStart=refStart;window.refClaim=refClaim;window.refData=refData;
+window.upgradePlot=upgradePlot;window.upToggle=upToggle;window.upSelAll=upSelAll;window.upgradeSelected=upgradeSelected;window.refBuild=refBuild;window.refBuySlots=refBuySlots;window.refStart=refStart;window.refGrind=refGrind;window.refCollectGrind=refCollectGrind;window.refData=refData;window.refGrindPlan=refGrindPlan;window.refStartPlan=refStartPlan;
 async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
 async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
