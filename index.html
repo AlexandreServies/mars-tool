@@ -409,25 +409,41 @@ async function stoneBatch(addr){const ids=[...Array(12).keys(),SLUSH.id];let d=S
     return out.slice(0,12);}catch(e){return Array(12).fill(0);}}
 async function loadCosts(){for(let l=2;l<=MAXLVL;l++){if(COST[l])continue;try{const r=await ethCall(A.plots,S.costOf+w(l));const[ids,amts]=decArrs(r);COST[l]={ids,amts};}catch(e){}}}
 // read live ore market (on-chain, no CORS) + $DRILL/ETH price from the V4 pool
+const MKT_LS="mars_mkt_v1",MKT_FULL_MS=6*3600e3;   // open listing/bid ids per market, cached per device; full rescan every 6 h
+function mkLoad(){if(ST.mk)return ST.mk;let c=null;try{c=JSON.parse(localStorage.getItem(MKT_LS)||"null");}catch(e){}
+  if(!c||c.v!==1||!c.m||typeof c.m!=="object")c={v:1,fullAt:0,m:{}};for(const k of Object.keys(c.m)){const s=c.m[k];if(!s||!Array.isArray(s.alive)||!Array.isArray(s.aliveO)||typeof s.lastL!=="number"||typeof s.lastO!=="number")delete c.m[k];}ST.mk=c;return c;}
+function mkSave(){try{if(ST.mk)localStorage.setItem(MKT_LS,JSON.stringify(ST.mk));}catch(e){}}
 async function loadMarket(){
   try{const s0=await ethCall(A.poolMgr,S.extsload+POOL_SLOT0.slice(2));const v=BigInt(s0||"0x0"),sqrt=v&((1n<<160n)-1n);const dpw=Number(sqrt*sqrt*10n**18n/(1n<<192n))/1e18;ST.drillEth=dpw?1/dpw:0;}catch(e){ST.drillEth=0;}
   const bid=Array(12).fill(0),ask=Array(12).fill(0),askWei=Array(12).fill(0n),myListed=Array(12).fill(0),book=[],ladder=Array.from({length:12},()=>[]),bids=Array.from({length:12},()=>[]),allLots=Array.from({length:12},()=>[]);
-  // one order book across both markets: v2 (new, big lots) + legacy v1 (old listings/bids, still fillable)
+  // one order book across both markets: v2 (new, big lots) + legacy v1 (old listings/bids, still fillable).
+  // Incremental: the contracts delete a listing or bid once it is sold out, cancelled or expired, so a dead id never comes back.
+  // Each refresh re-reads only the ids that were open last time plus the ids created since (a few calls, ~300 KB) instead of
+  // every id ever created (19k+ ids, 12 MB, growing daily). A full rescan runs once per device and again every 6 h to self-heal.
+  const mk=mkLoad(),full=Date.now()-(mk.fullAt||0)>MKT_FULL_MS,now=Date.now();let mkFail=false;
   for(const [mkt,mv] of [[A.market2,2],[A.market,1]]){
+    const st=(mk.m[mv]=mk.m[mv]||{lastL:0,alive:[],lastO:0,aliveO:[]});
     try{
       const lo=Number(BigInt(await ethCall(mkt,S.lastOffer)||"0x0"));
-      if(lo>0){const lc=[],oc=[];for(let i=1;i<=lo;i++){lc.push({to:mkt,data:S.offerLive+w(i)});oc.push({to:mkt,data:S.offerOf+w(i)});}
-        const lv=decAgg3(await ethCall(MC3,encAgg3(lc))),od=decAgg3(await ethCall(MC3,encAgg3(oc))),offers=[];
-        od.forEach((r,ix)=>{const live=lv[ix]&&BigInt(lv[ix].data||"0x0")===1n;if(!live||!r.success)return;const W=words(r.data);const maker=("0x"+(W[0]||"").slice(24)).toLowerCase(),ore=parseInt(W[1],16),left=Number(BigInt("0x"+(W[2]||"0"))),exp=parseInt(W[3]||"0",16)*1000,pw=BigInt("0x"+(W[4]||"0"));if(ore>=12||left<=0||pw<=0n||(exp&&exp<=Date.now()))return;offers.push({maker,ore,left,pw,price:Number(pw)/1e18});});
-        // a bid is only real depth if its maker can pay it: cap each maker's bids (best price first) by min(DRILL balance, allowance to this market)
-        const mk=[...new Set(offers.map(o=>o.maker))],funds={};
-        if(mk.length){try{const dec=decAgg3(await ethCall(MC3,encAgg3(mk.flatMap(m=>[{to:A.ore,data:S.balanceOf+wa(m)},{to:A.ore,data:S.allowance+wa(m)+wa(mkt)}]))));mk.forEach((m,k)=>{const b=dec[2*k],a=dec[2*k+1];const bb=b&&b.success?BigInt(b.data||"0x0"):0n,aa=a&&a.success?BigInt(a.data||"0x0"):0n;funds[m]=bb<aa?bb:aa;});}catch(e){}}
-        offers.sort((a,b)=>b.price-a.price).forEach(o=>{if(o.maker in funds){o.left=Math.min(o.left,Number(funds[o.maker]/o.pw));funds[o.maker]-=o.pw*BigInt(Math.max(0,o.left));}if(o.left<=0)return;if(o.price>bid[o.ore])bid[o.ore]=o.price;bids[o.ore].push({price:o.price,left:o.left,mv});});}
+      const oids=full?[]:st.aliveO.slice();for(let i=(full?0:st.lastO)+1;i<=lo;i++)oids.push(i);   // open bids + new ones
+      const offers=[],keepO=[];
+      for(let s=0;s<oids.length;s+=200){const part=oids.slice(s,s+200),calls=[];part.forEach(i=>{calls.push({to:mkt,data:S.offerLive+w(i)});calls.push({to:mkt,data:S.offerOf+w(i)});});
+        const dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
+        part.forEach((i,k)=>{const lv=dec[2*k],r=dec[2*k+1];if(!r||!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);const maker=("0x"+(W[0]||"").slice(24)).toLowerCase(),ore=parseInt(W[1],16),left=Number(BigInt("0x"+(W[2]||"0"))),exp=parseInt(W[3]||"0",16)*1000,pw=BigInt("0x"+(W[4]||"0"));
+          if(!/[1-9a-f]/.test(maker.slice(2))||left<=0||pw<=0n||(exp&&exp<=now))return;   // deleted, filled or expired: gone for good
+          keepO.push(i);const live=lv&&lv.success&&BigInt(lv.data||"0x0")===1n;if(!live||ore>=12)return;   // open but unfunded: watched, not depth
+          offers.push({maker,ore,left,pw,price:Number(pw)/1e18});});}
+      // a bid is only real depth if its maker can pay it: cap each maker's bids (best price first) by min(DRILL balance, allowance to this market)
+      const mks=[...new Set(offers.map(o=>o.maker))],funds={};
+      if(mks.length){try{const dec=decAgg3(await ethCall(MC3,encAgg3(mks.flatMap(m=>[{to:A.ore,data:S.balanceOf+wa(m)},{to:A.ore,data:S.allowance+wa(m)+wa(mkt)}]))));mks.forEach((m,k)=>{const b=dec[2*k],a=dec[2*k+1];const bb=b&&b.success?BigInt(b.data||"0x0"):0n,aa=a&&a.success?BigInt(a.data||"0x0"):0n;funds[m]=bb<aa?bb:aa;});}catch(e){}}
+      offers.sort((a,b)=>b.price-a.price).forEach(o=>{if(o.maker in funds){o.left=Math.min(o.left,Number(funds[o.maker]/o.pw));funds[o.maker]-=o.pw*BigInt(Math.max(0,o.left));}if(o.left<=0)return;if(o.price>bid[o.ore])bid[o.ore]=o.price;bids[o.ore].push({price:o.price,left:o.left,mv});});
       const ll=Number(BigInt(await ethCall(mkt,S.lastListing)||"0x0"));
-      for(let s=1;s<=ll;s+=240){const calls=[];for(let i=s;i<Math.min(s+240,ll+1);i++)calls.push({to:mkt,data:S.listingOf+w(i)});
-        const ids=calls.map((_,k)=>s+k),dec=decAgg3(await ethCall(MC3,encAgg3(calls)));
-        dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});allLots[id].push({price,amt,mine:isMine});if(!isMine)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:ids[k],lots,mine:isMine,mv});});}
-    }catch(e){log("market v"+mv+" read: "+e.message);}}
+      const lids=full?[]:st.alive.slice();for(let i=(full?0:st.lastL)+1;i<=ll;i++)lids.push(i);const keepL=[];   // open listings + new ones
+      for(let s=0;s<lids.length;s+=240){const part=lids.slice(s,s+240),dec=decAgg3(await ethCall(MC3,encAgg3(part.map(i=>({to:mkt,data:S.listingOf+w(i)})))));
+        dec.forEach((r,k)=>{if(!r.success||!r.data||r.data.length<2+64*5)return;const W=words(r.data);if(BigInt("0x"+(W[2]||"0"))<=0n)return;keepL.push(part[k]);const seller=("0x"+(W[0]||"").slice(24)).toLowerCase(),isMine=!!ST.addr&&seller===ST.addr.toLowerCase();const n=parseInt(W[4]||"0",16),lots=[];for(let j=0;j<n;j++){const id=parseInt(W[5+j*3]||"0",16),amt=Number(BigInt("0x"+(W[6+j*3]||"0"))),pw=BigInt("0x"+(W[7+j*3]||"0")),price=Number(pw)/1e18;if(amt>0&&id<12){if(isMine)myListed[id]+=amt;if(pw>0n){lots.push({stone:id,amount:amt,priceWei:pw,price});allLots[id].push({price,amt,mine:isMine});if(!isMine)ladder[id].push({price,amt,pw});}}}if(lots.length)book.push({id:part[k],lots,mine:isMine,mv});});}
+      st.lastO=lo;st.aliveO=keepO;st.lastL=ll;st.alive=keepL;   // only after every read of this market succeeded
+    }catch(e){mkFail=true;log("market v"+mv+" read: "+e.message);}}
+  if(full&&!mkFail)mk.fullAt=now;mkSave();
   // ask = price at cumulative depth >= min(DEPTH_UNITS, 10% of the book), skipping dust (lots < MINLOT that are also < 2% of the book).
   // Liquid stones: 10 units deep, qty-1 lots ignored (a fake floor can't drag the price). Thin stones (Core Blue: three 1-unit
   // lots): every lot is real and the cheapest one is the ask — before this, they showed no ask at all.
