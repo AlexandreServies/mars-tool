@@ -74,7 +74,7 @@
   .obh{color:var(--mut2);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;padding-bottom:2px}
   .obm{border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--mut);margin:2px 0;font-size:10px;line-height:1.7}
   .obm span:nth-child(2){text-align:center}.obm span:nth-child(3){text-align:right}
-  .obe,.obf{color:var(--mut2);font-size:9.5px;padding:2px 6px}.obf{margin-top:3px;font-family:inherit}
+  .obe{color:var(--mut2);font-size:9.5px;padding:2px 6px}
   .obme{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--gold);margin-left:4px;vertical-align:middle}
   #stoneTbl td.nm,#waveTbl tr{cursor:pointer}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
@@ -684,9 +684,7 @@ function renderBook(i){const Bk=bookLevels(i);if(!Bk)return '<div class="obe">no
   return '<div class="ob"><div class="obh"><span>price</span><span>size</span><span>total DRILL</span></div>'
     +(Bk.asks.length?Bk.asks.map(L=>row(L,"a")).join(""):'<div class="obe">no asks</div>')
     +'<div class="obm"><span class="red">'+(Bk.bestA?P(Bk.bestA):'–')+'</span><span>'+(spread!=null?'spread '+spread.toFixed(1)+'%':(Bk.bestA?'no bids':'no asks'))+'</span><span class="grn">'+(Bk.bestB?P(Bk.bestB):'–')+'</span></div>'
-    +(Bk.bids.length?Bk.bids.map(L=>row(L,"b")).join(""):'<div class="obe">no bids</div>')
-    +'<div class="obf">10 bands of 3% each side (asks '+P(Bk.tickA)+(Bk.bestB?', bids '+P(Bk.tickB):'')+') · asks '+fmt(Bk.askU)+' u ≈ '+V(Bk.askV)+' DRILL · bids '+fmt(Bk.bidU)+' u ≈ '+V(Bk.bidV)+' DRILL · bar = total DRILL from the spread'
-    +(Bk.dustU?' · <span class="gold">'+fmt(Bk.dustU)+' u of dust listed below '+P(Bk.bestA)+' (from '+P(Bk.rawA)+') not shown</span>':'')+'</div></div>';}
+    +(Bk.bids.length?Bk.bids.map(L=>row(L,"b")).join(""):'<div class="obe">no bids</div>')+'</div>';}
 function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();renderWaves();}
 const detRow=(i,cols)=>{if(ST.rowOpen!==i)return'';const sg=sigOf(i);return sg?'<tr class="det"><td colspan="'+cols+'">'+sg.tip+'</td></tr>':'';};
 // ---- tool 2: wave pressure table ----
