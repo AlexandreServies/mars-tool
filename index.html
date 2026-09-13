@@ -165,7 +165,7 @@
 
   <div class="row">
     <div class="card" id="stoneCard" style="flex:1;min-width:260px" hidden>
-      <h2>Stones <span class="r">🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
+      <h2>Stones</h2><div class="tscroll"><table id="stoneTbl"></table></div><div id="stoneBatch" style="margin-top:6px"></div><div id="stoneOut" style="margin-top:6px"></div>
     </div>
     <div class="card" style="flex:1;min-width:260px">
       <h2>Rig value <span class="r" id="rigCardNote">catalog</span></h2><table id="rigTbl"></table>
@@ -223,11 +223,6 @@
   <div class="card" id="playersCard" hidden>
     <h2>Active players <span class="r" id="playersR">since TGE · 1h</span></h2>
     <div id="playersBody"></div>
-  </div>
-
-  <div class="card" id="waveCard" hidden>
-    <h2>Sell timing <span class="r">tap a row · 🔴 sell 🟡 soon 🔵 wait 🟢 hold</span></h2>
-    <div class="tscroll" id="waveBody"></div>
   </div>
 
   <div class="card" id="xferCard" hidden>
@@ -307,7 +302,7 @@ const DEPLOY_TOPIC="0x321431a3f8c3ed9d49a8ea13b0fe9e35db349ce681d40e3dbd9770ba74
 const DUR2TIER={1800:0,3600:1,7200:2,14400:3,28800:4};
 const PROD_H=8,PROD_NB=96; // production timeline: 8h horizon, 5-min buckets
 // history cache (fills + rig ripenings) kept 30h, persisted in localStorage; wave stats on 30-min buckets, 24h back / 8h ahead
-const HIST_KEEP_H=26,HIST_LS="mars_hist_v4",SPB_DEFAULT=0.101,WB=0.5,PAST_NB=48,FUT_NB=16;
+const HIST_KEEP_H=26,HIST_LS="mars_hist_v4",SPB_DEFAULT=0.101;
 const PRICE_H=48,PRICE_NB=96;
 // DRILL supply: hourly mint/burn totals since TGE (DRILL contract creation), cached per device, extended incrementally every 5 min
 const DRILL_TGE_BLOCK=58080230,SUPPLY_LS="mars_supply_v1",SUPPLY_MS=300000;
@@ -484,7 +479,7 @@ function histIngest(logs){const h=ST.hist,site=A.site.toLowerCase();
     else if(tp===LISTED_TOPIC||tp===CANCEL_TOPIC){if(d.length<128)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,po=tp===LISTED_TOPIC?parseInt(W(2),16)/32:0,k=parseInt(W(io),16);
       for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);if(id>=12||a<=0)continue;const v=po?Number(BigInt("0x"+W(po+1+j)))/1e18*a:0;h.sal.push([blk,id,a,+v.toPrecision(6),tp===LISTED_TOPIC?2:3]);}}}}
 let histBusy=false;
-function histProgress(txt){ST.histProg=txt;const r=$("prodR");if(r)r.textContent=txt||"others’ rigs · 5m · 8h";const wb=$("waveBody");if(txt&&wb&&!ST.stats)wb.innerHTML='<div class="sub">'+txt+'</div>';}
+function histProgress(txt){ST.histProg=txt;const r=$("prodR");if(r)r.textContent=txt||"others’ rigs · 5m · 8h";}
 async function histRefresh(){if(histBusy)return;histBusy=true;
   try{const h=histLoad();
     const hb=await rpc("eth_getBlockByNumber",["latest",false]);const head=parseInt(hb.number,16),headTs=parseInt(hb.timestamp,16);
@@ -503,45 +498,19 @@ async function histRefresh(){if(histBusy)return;histBusy=true;
     const now=Date.now(),keepMs=HIST_KEEP_H*3.6e6,minBlk=h.head-Math.round(HIST_KEEP_H*3600/h.spb);   // keep 26h of ripenings (past+future) and market rows
     h.dep=h.dep.filter(x=>x[0]*1000>now-keepMs);h.sal=h.sal.filter(x=>x[0]>=minBlk);
     const meId=h.plm.get((ST.addr||"").toLowerCase());ST.deploys=h.dep.map(x=>({ready:x[0]*1000,tier:x[1],mine:x[2]===meId}));ST.depHead=h.head;
-    histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderWaves();renderOpt();supplyRefresh();playersRefresh();
+    histSave(false);renderProd();renderPrices();renderRigs();renderStones();renderOpt();supplyRefresh();playersRefresh();
   }catch(e){log("history: "+e.message);}finally{histBusy=false;}}
-// ---- wave statistics, all client-side from the cache (no RPC): 30-min buckets, 24h back / 8h ahead, per stone ----
+// ---- market activity from the cache (no RPC): last-hour buys per stone (Stones table), the price series, buys/h (optimizer's sell-through check) ----
 const med=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y);return s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;};
-function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.now(),NB=PAST_NB+FUT_NB,bw=WB*3.6e6,bk=t=>Math.floor((t-now)/bw)+PAST_NB;
-  const Z=()=>Array(12).fill(0),G=n=>Array.from({length:12},()=>Array(n).fill(0));
-  const sup=G(NB),vol=G(PAST_NB),lvol=G(PAST_NB),supT=G(5),fills=Array.from({length:12},()=>Array.from({length:PAST_NB},()=>[]));
-  const u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),l2=Z(),c2=Z(),l24=Z(),r24=Z(),a2=Z(),pxf=Array.from({length:12},()=>({}));
-  const meId=h.plm.get((ST.addr||"").toLowerCase());   // your own rigs are not market pressure: skip them in every supply figure
-  for(const x of h.dep){if(x[2]===meId)continue;const b=bk(x[0]*1000);if(b<0||b>=NB)continue;const t=TIERS[x[1]];for(let s=0;s<12;s++){const o=t.odds[s];if(o){const u=t.tray*o/1e4;sup[s][b]+=u;if(b<PAST_NB){r24[s]+=u;supT[s][x[1]]+=u;}}}}
+function histStats(){const h=ST.hist;if(!h||h.head==null)return;const now=Date.now();
+  const Z=()=>Array(12).fill(0),u1=Z(),v1=Z(),c1=Z(),pv=Z(),pu=Z(),u24=Z(),pxf=Array.from({length:12},()=>({}));
   const t1=now-3.6e6,t2=now-7.2e6,t24=now-24*3.6e6;
-  for(const x of h.sal){const t=blkTime(x[0]),s=x[1],k=x[4],b=bk(t);
-    if(k===2){if(t>t2)l2[s]+=x[2];if(t>t24)l24[s]+=x[2];if(b>=0&&b<PAST_NB)lvol[s][b]+=x[2];continue;}
-    if(k===3){if(t>t2)c2[s]+=x[2];continue;}
-    if(t>t1){u1[s]+=x[2];v1[s]+=x[3];c1[s]++;}else if(t>t2){pv[s]+=x[3];pu[s]+=x[2];}if(t>t24)u24[s]+=x[2];if(t>t2&&k!==4)a2[s]+=x[2];
-    if(k===1||k===4){const ab=Math.floor(t/1.8e6);(pxf[s][ab]||(pxf[s][ab]=[])).push(x[3]/x[2]);}
-    if(b<0||b>=PAST_NB)continue;vol[s][b]+=x[2];if(k===1||k===4)fills[s][b].push(x[3]/x[2]);}
+  for(const x of h.sal){const k=x[4];if(k===2||k===3)continue;   // listings and cancels are not buys
+    const t=blkTime(x[0]),s=x[1];
+    if(t>t1){u1[s]+=x[2];v1[s]+=x[3];c1[s]++;}else if(t>t2){pv[s]+=x[3];pu[s]+=x[2];}if(t>t24)u24[s]+=x[2];
+    if(k===1||k===4){const ab=Math.floor(t/1.8e6);(pxf[s][ab]||(pxf[s][ab]=[])).push(x[3]/x[2]);}}
   ST.act={u:u1,v:v1,c:c1,pv,pu};pxUpdate(h,pxf,now);   // Stones table "1h $ / u·n" + trend arrow (asks bought + bids hit)
-  ST.stats=STONE.map((_,s)=>{
-    const dem=(u1[s]+pu[s])/2,dem24=u24[s]/24,lst=l2[s]/2,cnl=c2[s]/2,net=lst-cnl-a2[s]/2;   // per hour over the last 2h: bought (asks+bids) · listed · cancelled · net growth of the ask side (listed − cancelled − asks bought)
-    const f=r24[s]>0?Math.min(1.5,l24[s]/r24[s]):0.5;   // share of ripened ore that actually gets listed (24h)
-    const P=sup[s].slice(0,PAST_NB),base=P.reduce((a,b)=>a+b,0)/PAST_NB;   // typical ripening per 30 min over the past 24h (all tiers)
-    // a future bucket ending t hours ahead can only hold rigs that run ≥ t (planted by now), so its norm = past average of those tiers
-    const KB=t=>TIERS.reduce((a,T,k)=>a+(T.h>=t-1e-9?supT[s][k]/PAST_NB:0),0);
-    const S2=sup[s].slice(PAST_NB,PAST_NB+4).reduce((a,b)=>a+b,0),S8=sup[s].slice(PAST_NB).reduce((a,b)=>a+b,0);
-    // sellers' lag: the shift (0–4h) at which ripening best predicts listing volume (sold volume if nothing was listed)
-    const ser=l24[s]>0?lvol[s]:vol[s];let lag=1,lagR=0;for(let L=0;L<=8;L++){let ma=0,mb=0,m=0;for(let b=0;b+L<PAST_NB;b++){ma+=P[b];mb+=ser[b+L];m++;}ma/=m;mb/=m;let sab=0,saa=0,sbb=0;for(let b=0;b+L<PAST_NB;b++){const x=P[b]-ma,y=ser[b+L]-mb;sab+=x*y;saa+=x*x;sbb+=y*y;}const c=saa&&sbb?sab/Math.sqrt(saa*sbb):0;if(c>lagR){lagR=c;lag=L*WB;}}
-    // a burst = a 30-min bucket ripening ≥1.5× its norm; its size is the excess over that norm
-    const ex=b=>{const nb=b<PAST_NB?base:KB((b-PAST_NB+1)*WB),v=sup[s][b];return v>=1.5*nb&&v-nb>=1?v-nb:0;},isPeak=b=>{for(let k=Math.max(0,b-2);k<=Math.min(NB-1,b+2);k++)if(sup[s][k]>sup[s][b])return false;return true;};
-    let nw=null;for(let b=PAST_NB;b<NB;b++){const e=ex(b);if(e>=1&&isPeak(b)&&(!nw||e>nw.ex))nw={t:(b-PAST_NB+0.5)*WB,u:sup[s][b],ex:e};}   // biggest upcoming burst
-    let due=0;for(let b=0;b<PAST_NB;b++){const ago=(PAST_NB-b-0.5)*WB;if(ago>=lag-0.25&&ago<=lag+2)due+=ex(b);}   // bursts that ripened lag…lag+2h ago → their sellers are listing about now
-    // realized effect of past bursts (excess × listed share ≥ 1.5h of buys): 30-min median unit price 2h after vs 1h
-    // before, minus the same measure at non-burst times (removes the market trend). Reported with n — small n is noisy.
-    const px=Array(PAST_NB).fill(NaN);let lastp=NaN;for(let b=0;b<PAST_NB;b++){const q=fills[s][b];if(q.length>=2)lastp=med(q);px[b]=lastp;}
-    const ret=b=>{const bef=[],aft=[];for(let k=b-2;k<b;k++)if(k>=0&&!isNaN(px[k]))bef.push(px[k]);for(let k=b;k<b+4;k++)if(k<PAST_NB&&!isNaN(px[k]))aft.push(px[k]);if(bef.length<1||aft.length<2)return NaN;return Math.log(med(aft)/med(bef));};
-    const bigT=Math.max(1.5*dem,20),waves=[];for(let b=2;b<=PAST_NB-5;b++)if(ex(b)*f>=bigT&&isPeak(b))waves.push(b);
-    const rw=[],rc=[];for(const b of waves){const r=ret(b);if(!isNaN(r))rw.push(r);}for(let b=2;b<=PAST_NB-5;b++){if(waves.some(w=>Math.abs(w-b)<3))continue;const r=ret(b);if(!isNaN(r))rc.push(r);}
-    const dPct=rw.length&&rc.length?Math.exp(med(rw)-med(rc))-1:NaN;
-    return{dem,dem24,lst,cnl,net,f,base,S2,S8,lag,lagR,nw,due,dPct,n:rw.length,px:lastp};});}
+  ST.stats=STONE.map((_,s)=>({dem:(u1[s]+pu[s])/2,dem24:u24[s]/24}));}   // units bought per hour (last 2h, else 24h)
 // price series: 96 absolute 30-min buckets ending now, median unit price of fills (asks bought + bids hit). Buckets inside
 // the raw 26h window are recomputed from the rows; older buckets keep their stored value, so the series persists past the
 // raw window and grows with every refresh.
@@ -640,26 +609,6 @@ function renderPlayers(){const el=$("playersBody");if(!el)return;const c=ST.play
   const s24=act.slice(-24).reduce((a,b)=>a+b,0),p24=act.slice(-48,-24).reduce((a,b)=>a+b,0),chg=p24?s24/p24-1:null,col=chg==null?'var(--mut)':chg>0.02?'var(--green)':chg<-0.02?'var(--red)':'var(--mut)';
   const r=$("playersR");if(r)r.innerHTML=fmt(act[n-1])+' last hour · '+fmt(uniq(24))+' in 24h'+(chg==null?'':' · <span style="color:'+col+'">'+(chg>=0?'▲':'▼')+' '+Math.abs(chg*100).toFixed(0)+'% vs prev day</span>');
   el.title="line: wallets that planted or collected a rig in the hour · green bars: wallets seen for the first time · "+fmt(c.pl.length)+" wallets ever · "+n+" full hours since TGE";}
-// ---- per-stone sell signal (tool 3): upcoming bursts × sellers' lag vs what the book absorbs, else the book's own trend ----
-function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st.dem||st.dem24,an=(ST.askNear&&ST.askNear[i])||0,au=(ST.askUnits&&ST.askUnits[i])||0;
-  const thr=Math.max(dem>0?1.5*dem:0.5*an,20);   // "big" = the listed part would add ≥1.5h of buying (≥½ the near-ask depth if nobody buys)
-  const big=e=>e*st.f>=thr,hit=st.nw?st.nw.t+st.lag:Infinity,clear=dem>0&&st.net<0?an/(-st.net):Infinity;
-  const pm=x=>(x>=0?"+":"−")+fmtK(Math.abs(x));
-  const sure=st.lagR>=0.4?"solid":st.lagR>=0.2?"weak":"a guess";
-  let tip="for sale: "+fmtK(au)+" units, "+fmtK(an)+" near the lowest price"+(clear<48?" (buyers clear those in ~"+fmtDur(clear)+")":"")+" · per hour: +"+fmtK(st.lst)+" listed, −"+fmtK(st.cnl)+" cancelled, −"+fmtK(dem)+" bought → pile "+(st.net>=0?"grows ":"shrinks ")+fmtK(Math.abs(st.net))+"/h";
-  tip+=" · next 2h: "+fmtK(st.S2)+" ripening across the planet, ~"+Math.round(st.f*100)+"% of that gets listed"+(dem?" = "+Math.round(100*st.S2*st.f/(2*dem))+"% of what buyers take in 2h":"");
-  tip+=st.nw?" · biggest spike +"+fmtDur(st.nw.t)+": "+fmtK(st.nw.u)+" ripening ("+fmtK(st.nw.ex)+" more than usual), its sellers arrive ~+"+fmtDur(hit):" · no spike above usual in the next 8h";
-  tip+=" · sellers list ~"+fmtDur(st.lag)+" after ripening ("+sure+")"+(isNaN(st.dPct)?"":" · price after past spikes: "+(st.dPct>=0?"+":"")+Math.round(st.dPct*100)+"% ("+st.n+" spike"+(st.n===1?"":"s")+")");
-  // red = sell now (price about to drop) · yellow = sell before a time · blue = wait (sellers flooding in right now) · green = hold · grey = no trades
-  let r;if(st.nw&&big(st.nw.ex)&&hit<=1.5)r={k:"now",txt:"⚡ sell now",col:"var(--red)"};
-  else if(st.nw&&big(st.nw.ex)&&hit<=8.5)r={k:"by",txt:"⏳ sell <"+fmtDur(Math.max(0.5,Math.floor((hit-0.5)*2)/2)),col:"var(--gold)"};
-  else if(big(st.due))r={k:"dip",txt:"⬇ falling · wait",col:"var(--blue)"};
-  else if(!dem&&!st.lst)r={k:"quiet",txt:"· no trades",col:"var(--mut2)"};
-  else if(st.net>0.3*dem)r={k:"glut",txt:"▼ piling up · sell",col:"var(--red)"};
-  else if(st.net<-0.3*dem)r={k:"scarce",txt:"▲ selling out",col:"var(--green)"};
-  else r={k:"ok",txt:"✓ steady",col:"var(--green)"};
-  r.tip=tip;return r;}
-// tapping a stone row (Stones or Wave table) opens its numbers inline — phones have no hover tooltips
 // ---- order book (tap a stone row): 10 price bands of 3% each side of the market — asks top-down to the spread, then bids —
 // each band aggregates the live lots (both markets) that fall in it; the bar is the cumulative DRILL from the spread outward ----
 const OB_ROWS=10,OB_BAND=0.03;
@@ -685,20 +634,7 @@ function renderBook(i){const Bk=bookLevels(i);if(!Bk)return '<div class="obe">no
     +(Bk.asks.length?Bk.asks.map(L=>row(L,"a")).join(""):'<div class="obe">no asks</div>')
     +'<div class="obm"><span class="red">'+(Bk.bestA?P(Bk.bestA):'–')+'</span><span>'+(spread!=null?'spread '+spread.toFixed(1)+'%':(Bk.bestA?'no bids':'no asks'))+'</span><span class="grn">'+(Bk.bestB?P(Bk.bestB):'–')+'</span></div>'
     +(Bk.bids.length?Bk.bids.map(L=>row(L,"b")).join(""):'<div class="obe">no bids</div>')+'</div>';}
-function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();renderWaves();}
-const detRow=(i,cols)=>{if(ST.rowOpen!==i)return'';const sg=sigOf(i);return sg?'<tr class="det"><td colspan="'+cols+'">'+sg.tip+'</td></tr>':'';};
-// ---- tool 2: wave pressure table ----
-function renderWaves(){const el=$("waveBody");if(!el)return;const S=ST.stats;if(!S){el.innerHTML='<div class="sub">'+(ST.histProg||'scanning history…')+'</div>';return;}
-  const rows=STONE.map((s,i)=>{const st=S[i],sg=sigOf(i),dem=st.dem||st.dem24,au=(ST.askUnits&&ST.askUnits[i])||0,an=(ST.askNear&&ST.askNear[i])||0,dim=st.S8<1&&!au&&!dem;
-    const c=(top,sub,tc,sc)=>`<td class=n><div class="stk"><span${tc?' style="color:'+tc+'"':''}>${top}</span><div class="s"${sc?' style="color:'+sc+'"':''}>${sub}</div></div></td>`;
-    const hb=dem?st.S2*st.f/(2*dem):Infinity,hbCol=!isFinite(hb)||hb>=1.5?'var(--red)':hb>=1?'var(--gold)':'',netCol=st.net>0.3*dem?'var(--red)':st.net<-0.3*dem?'var(--green)':'';
-    return `<tr${dim?' class="pempty"':''} onclick="rowTap(${i})"><td class=nm><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut)'}">${sg?sg.txt:'–'}</div></div></td>`
-      +c(st.nw?'+'+fmtDur(st.nw.t):'<span class=muted>–</span>',st.nw?fmtK(st.nw.ex)+' extra':'',st.nw&&sg&&(sg.k==='now'||sg.k==='by')?sg.col:'')
-      +c(st.S2>=1?fmtK(st.S2):'<span class=muted>–</span>',st.S2>=1?(dem?Math.round(hb*100)+'% buys':'no buyers'):'',st.S2>=1?hbCol:'',st.S2>=1?hbCol:'')
-      +c((st.lst||dem||st.cnl)?(st.net>=0?'+':'−')+fmtK(Math.abs(st.net))+'/h':'<span class=muted>–</span>',au?fmtK(an)+' near low':'',netCol)
-      +c(fmtDur(st.lag),st.lagR>=0.4?'solid':st.lagR>=0.2?'weak':'guess','',st.lagR<0.2?'var(--mut2)':'')
-      +c(isNaN(st.dPct)?'<span class=muted>–</span>':(st.dPct>=0?'+':'')+Math.round(st.dPct*100)+'%',isNaN(st.dPct)?'':st.n+' spike'+(st.n===1?'':'s'),isNaN(st.dPct)?'':(st.dPct<-0.05?'var(--red)':st.dPct>0.05?'var(--green)':''),st.n<3?'var(--mut2)':'')+'</tr>'+detRow(i,6);}).join("");
-  el.innerHTML='<table id="waveTbl"><colgroup><col style="width:86px"><col style="width:46px"><col style="width:52px"><col style="width:58px"><col style="width:34px"><col style="width:44px"></colgroup><thead><tr><th>Stone<br>signal</th><th class=n title="biggest ripening spike in the next 8h: when, and how many units more than usual">Spike<br>extra</th><th class=n title="units ripening planet-wide in the next 2h · the part that gets listed, as % of what buyers take in 2h">Next 2h<br>vs buys</th><th class=n title="how fast the pile for sale grows (+) or shrinks (−) per hour · units listed near the lowest price">For sale<br>change/h</th><th class=n title="how long after ripening sellers list, and how sure the data is">Sell delay<br>sure?</th><th class=n title="price 2h after past spikes vs 1h before, market trend removed">After<br>spike</th></tr></thead><tbody>'+rows+'</tbody></table>';}
+function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();}
 // active rigs per type: yours from the site contract (tier field 1-based, verified) vs planet-wide from the deploy cache
 // (a rig whose ripening time is still ahead is running); +1h = rigs planted planet-wide in the last hour
 function renderRigs(){const tb=$("rigsTbl");if(!tb)return;const now=Date.now(),loading=ST.depHead==null;
@@ -739,7 +675,7 @@ function renderProd(){
 }
 let REFRESHING=false;
 async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
-  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("waveCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=$("priceCard").hidden=$("supplyCard").hidden=$("playersCard").hidden=$("refCard").hidden=false;renderSupply();renderPlayers();renderRig();renderProd();renderPrices();renderWaves();renderRigs();renderLevels();
+  if(!quiet)setS("Reading…","s-wait");$("standCard").hidden=$("actCard").hidden=$("portCard").hidden=$("stoneCard").hidden=$("xferCard").hidden=$("prodCard").hidden=$("optCard").hidden=$("rigsCard").hidden=$("lvCard").hidden=$("priceCard").hidden=$("supplyCard").hidden=$("playersCard").hidden=$("refCard").hidden=false;renderSupply();renderPlayers();renderRig();renderProd();renderPrices();renderRigs();renderLevels();
   const arg=wa(ST.addr);
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
   levelsRefresh();       // planet plot-level snapshot: one batched call, at most every 10 min
@@ -771,7 +707,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mRigs").innerHTML=ST.active+'<small>/'+RIGCAP+'</small>';$("mRigsX").innerHTML=rigLine();
   $("mShare").textContent=(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   renderPort();renderDeploy();renderRig();renderRigs();renderLevels();renderStones();fillUpSel();loadCosts().then(()=>{fillUpSel();renderUpBar();});
-  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderWaves();renderUpBar();renderRefinery();
+  await loadMarket();renderRig();renderStones();renderDeploy();updDrillEth();upSelChanged();renderOpt();renderUpBar();renderRefinery();
   if(!quiet)setS("Loaded · "+plots.length+" plots, "+ST.active+"/"+RIGCAP+" rigs"+(ST.ready?" ("+ST.ready+" ready)":"")+" · "+(ST.canSign?"can sign":"read-only"),"s-ok");
   if($("upd"))$("upd").textContent="updated "+new Date().toLocaleTimeString();
   startAuto();
@@ -811,12 +747,10 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
         const tt=fmt(uv)+' '+s[0]+' bought · '+fmtK(dv)+' DRILL · '+fmt(ct)+' buy'+(ct===1?'':'s')+(pvv>0?' · '+(tr>=0?'+':'')+Math.round(tr*100)+'% vs prev hr':'');
         actCell=`<div class="stk" title="${tt}"><span class="b">${fmtK(dv)}</span> ${ar}<div class="s">${fmtK(uv)}·${fmt(ct)}</div></div>`;}}
     const cb=canList(i)?`<input type=checkbox onclick="toggleSel(${i})"${ST.listSel.has(i)?" checked":""}>`:'';
-    const sg=sigOf(i);let tip=sg?sg.tip:'';   // + how long the units ahead of my cheapest listing take to clear at the current buy rate
-    if(sg&&myFront[i]!==null&&ST.allLots){const mf=Number(myFront[i])/1e18,dem=ST.stats[i].dem||ST.stats[i].dem24;const ahead=ST.allLots[i].reduce((a,x)=>a+(!x.mine&&x.price<=mf?x.amt:0),0);tip+=' · '+fmtK(ahead)+' u ahead of your '+fmt(mf,mf<1?4:2)+' ask'+(dem?' ≈ '+(ahead/dem).toFixed(1)+'h to reach you':'');}
-    return `<tr><td class=n>${cb}</td><td class=nm title="${tip}" onclick="rowTap(${i})"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut2)'}">${sg?sg.txt:(ST.histProg?'…':'')}</div></div></td>`
+    return `<tr><td class=n>${cb}</td><td class=nm onclick="rowTap(${i})" style="cursor:pointer" title="tap for the order book"><span class=swatch style="background:${s[2]}"></span>${s[0]}</td>`
       +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s"${lst?' style="color:var(--gold)"':''}>${lst?fmt(lst):'–'}</div></div></td>`
       +`<td class=n><div class="stk"><span class="${a?'red':'muted'}">${a?(a>=1000?fmtK(a):fmt(a,2)):'–'}</span><div class="s"${b?' style="color:var(--green)"':''}>${b?(b>=1000?fmtK(b):fmt(b,2)):'–'}</div></div></td>`
-      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`+(ST.rowOpen===i?'<tr class="det"><td colspan="6">'+renderBook(i)+(sg?'<div style="margin-top:3px">'+tip+'</div>':'')+'</td></tr>':'');}).join("")
+      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`+(ST.rowOpen===i?'<tr class="det"><td colspan="6">'+renderBook(i)+'</td></tr>':'');}).join("")
     +"</tbody>";
   renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
