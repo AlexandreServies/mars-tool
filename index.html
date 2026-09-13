@@ -67,6 +67,15 @@
   #rigsTbl{font-size:11.5px}#rigsTbl th,#rigsTbl td{padding:3px 5px}
   .chip{font-size:8.5px;font-weight:600;letter-spacing:-.01em}
   tr.det td{font-size:9.5px;color:var(--mut);white-space:normal;line-height:1.35;padding:3px 6px 5px;background:#120f0e}
+  /* order book (tap a stone row): one div per price level, the background gradient is the cumulative-DRILL bar anchored right */
+  .ob{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;color:var(--ink);margin:1px 0 2px}
+  .obr,.obh,.obm{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:6px;padding:1px 6px;line-height:1.5}
+  .obr span:nth-child(2),.obr span:nth-child(3),.obh span:nth-child(2),.obh span:nth-child(3){text-align:right}
+  .obh{color:var(--mut2);font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;padding-bottom:2px}
+  .obm{border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--mut);margin:2px 0;font-size:10px;line-height:1.7}
+  .obm span:nth-child(2){text-align:center}.obm span:nth-child(3){text-align:right}
+  .obe,.obf{color:var(--mut2);font-size:9.5px;padding:2px 6px}.obf{margin-top:3px;font-family:inherit}
+  .obme{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--gold);margin-left:4px;vertical-align:middle}
   #stoneTbl td.nm,#waveTbl tr{cursor:pointer}
   .tag{display:inline-block;padding:1px 6px;border-radius:20px;font-size:9.5px;font-weight:700}
   .t-open{background:#12341f;color:var(--green)}.t-closed{background:#25211d;color:var(--mut)}
@@ -651,6 +660,33 @@ function sigOf(i){const st=ST.stats&&ST.stats[i];if(!st)return null;const dem=st
   else r={k:"ok",txt:"✓ steady",col:"var(--green)"};
   r.tip=tip;return r;}
 // tapping a stone row (Stones or Wave table) opens its numbers inline — phones have no hover tooltips
+// ---- order book (tap a stone row): 10 price bands of 3% each side of the market — asks top-down to the spread, then bids —
+// each band aggregates the live lots (both markets) that fall in it; the bar is the cumulative DRILL from the spread outward ----
+const OB_ROWS=10,OB_BAND=0.03;
+const sig2=x=>{if(!(x>0))return 1;const e=Math.pow(10,Math.floor(Math.log10(x))-1);return Math.round(x/e)*e;};   // 2 significant digits
+function bookLevels(i){const asks=(ST.allLots&&ST.allLots[i])||[],bids=(ST.bids&&ST.bids[i])||[];
+  // anchors: the dashboard's dust-filtered ask (a qty-1 lot at a silly price would otherwise drag the whole window) and the best funded bid
+  const rawA=asks.length?Math.min(...asks.map(x=>x.price)):0,bestA=(ST.ask&&ST.ask[i])||rawA,bestB=bids.length?Math.max(...bids.map(x=>x.price)):0;
+  if(!bestA&&!bestB)return null;const tickA=sig2(bestA*OB_BAND),tickB=sig2(bestB*OB_BAND);
+  // asks: band k covers (bestA+(k-1)·tick, bestA+k·tick], labelled by its top; bids: band k covers [bestB-k·tick, bestB-(k-1)·tick), labelled by its bottom
+  const A=Array.from({length:OB_ROWS},(_,k)=>({p:bestA+(k+1)*tickA,size:0,val:0,mine:false})),B=Array.from({length:OB_ROWS},(_,k)=>({p:Math.max(0,bestB-(k+1)*tickB),size:0,val:0}));
+  let dustU=0,dustV=0;
+  for(const x of asks){if(x.price<bestA-1e-12){dustU+=x.amt;dustV+=x.amt*x.price;continue;}if(x.price>bestA+OB_ROWS*tickA+1e-12)continue;const k=Math.min(OB_ROWS-1,Math.max(0,Math.ceil((x.price-bestA)/tickA-1e-9)-1));A[k].size+=x.amt;A[k].val+=x.amt*x.price;A[k].mine=A[k].mine||!!x.mine;}
+  for(const x of bids){if(x.price<bestB-OB_ROWS*tickB-1e-12)continue;const k=Math.min(OB_ROWS-1,Math.max(0,Math.ceil((bestB-x.price)/tickB-1e-9)-1));B[k].size+=x.left;B[k].val+=x.left*x.price;}
+  let c=0;for(const L of A){c+=L.val;L.cum=c;}c=0;for(const L of B){c+=L.val;L.cum=c;}
+  const max=Math.max(A[OB_ROWS-1].cum,B[OB_ROWS-1].cum)||1;
+  return{tick:tickA||tickB,tickA,tickB,bestA,bestB,rawA,dustU,dustV,asks:bestA?A.slice().reverse():[],bids:bestB?B:[],max,askU:A.reduce((s,L)=>s+L.size,0),bidU:B.reduce((s,L)=>s+L.size,0),askV:A[OB_ROWS-1].cum,bidV:B[OB_ROWS-1].cum};}
+function renderBook(i){const Bk=bookLevels(i);if(!Bk)return '<div class="obe">no orders on '+STONE[i][0]+' yet</div>';
+  const dec=Math.max(0,1-Math.floor(Math.log10(Bk.tick))),P=p=>p.toFixed(dec),V=v=>v>=1000?fmtK(v):fmt(v,v>=100?0:v>=1?1:2);
+  const row=(L,side)=>{const w=Math.min(100,100*L.cum/Bk.max).toFixed(1),col=side==="a"?"224,83,60":"57,181,106",dim=L.size?'':' style="opacity:.45"';
+    return '<div class="obr" style="background:linear-gradient(to left,rgba('+col+',.24) '+w+'%,transparent '+w+'%)"><span class="'+(side==="a"?"red":"grn")+'"'+dim+'>'+P(L.p)+(L.mine?'<i class="obme" title="includes your listing"></i>':'')+'</span><span'+dim+'>'+(L.size?fmt(L.size):'–')+'</span><span'+dim+'>'+(L.cum?V(L.cum):'–')+'</span></div>';};
+  const spread=Bk.bestA&&Bk.bestB?((Bk.bestA/Bk.bestB-1)*100):null;
+  return '<div class="ob"><div class="obh"><span>price</span><span>size</span><span>total DRILL</span></div>'
+    +(Bk.asks.length?Bk.asks.map(L=>row(L,"a")).join(""):'<div class="obe">no asks</div>')
+    +'<div class="obm"><span class="red">'+(Bk.bestA?P(Bk.bestA):'–')+'</span><span>'+(spread!=null?'spread '+spread.toFixed(1)+'%':(Bk.bestA?'no bids':'no asks'))+'</span><span class="grn">'+(Bk.bestB?P(Bk.bestB):'–')+'</span></div>'
+    +(Bk.bids.length?Bk.bids.map(L=>row(L,"b")).join(""):'<div class="obe">no bids</div>')
+    +'<div class="obf">10 bands of 3% each side (asks '+P(Bk.tickA)+(Bk.bestB?', bids '+P(Bk.tickB):'')+') · asks '+fmt(Bk.askU)+' u ≈ '+V(Bk.askV)+' DRILL · bids '+fmt(Bk.bidU)+' u ≈ '+V(Bk.bidV)+' DRILL · bar = total DRILL from the spread'
+    +(Bk.dustU?' · <span class="gold">'+fmt(Bk.dustU)+' u of dust listed below '+P(Bk.bestA)+' (from '+P(Bk.rawA)+') not shown</span>':'')+'</div></div>';}
 function rowTap(i){ST.rowOpen=ST.rowOpen===i?null:i;renderStones();renderWaves();}
 const detRow=(i,cols)=>{if(ST.rowOpen!==i)return'';const sg=sigOf(i);return sg?'<tr class="det"><td colspan="'+cols+'">'+sg.tip+'</td></tr>':'';};
 // ---- tool 2: wave pressure table ----
@@ -782,7 +818,7 @@ function renderStones(){const mkt=mktReady();if(!ST.listSel)ST.listSel=new Set()
     return `<tr><td class=n>${cb}</td><td class=nm title="${tip}" onclick="rowTap(${i})"><div class="stk"><span><span class=swatch style="background:${s[2]}"></span>${s[0]}</span><div class="s chip" style="color:${sg?sg.col:'var(--mut2)'}">${sg?sg.txt:(ST.histProg?'…':'')}</div></div></td>`
       +`<td class=n><div class="stk"><span class="${n?'':'muted'}">${fmt(n)}</span><div class="s"${lst?' style="color:var(--gold)"':''}>${lst?fmt(lst):'–'}</div></div></td>`
       +`<td class=n><div class="stk"><span class="${a?'red':'muted'}">${a?(a>=1000?fmtK(a):fmt(a,2)):'–'}</span><div class="s"${b?' style="color:var(--green)"':''}>${b?(b>=1000?fmtK(b):fmt(b,2)):'–'}</div></div></td>`
-      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`+(ST.rowOpen===i&&sg?'<tr class="det"><td colspan="6">'+tip+'</td></tr>':'');}).join("")
+      +`<td class=n>${actCell||'<span class="muted">·</span>'}</td><td class="n act">${act}</td></tr>`+(ST.rowOpen===i?'<tr class="det"><td colspan="6">'+renderBook(i)+(sg?'<div style="margin-top:3px">'+tip+'</div>':'')+'</td></tr>':'');}).join("")
     +"</tbody>";
   renderBatchBtn();renderXfer();}
 // ---- batch listing: check rows, bundle wallet holdings into <=5-stone / <=99-lot listings (column-major, fewest txs) ----
