@@ -264,7 +264,7 @@ const LOT_MAX=9999,LOTS_MAX=5,LADDER_RUNGS=8,LADDER_MIN=25;   // ladder = up to 
 const POOL_SLOT0="0xb31eee6f69dbbb3d2196fc24f67df6f69a2650ec155ef676a95fda9a6b24299b";
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
 const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
-  levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",
+  levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",transfer:"0xa9059cbb",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
   lastListing:"0x8f5be074",lastOffer:"0x704c0833",listingOf:"0xe3404981",offerOf:"0xa3cb2f44",offerLive:"0x5e489889",extsload:"0x1e2eaeaf",buyCombined:"0x49263a31",
@@ -710,7 +710,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   histRefresh();         // fills + rig ripenings: cached once, then only new blocks (1 call) → activity, timeline, waves, signals
   levelsRefresh();       // planet plot-level snapshot: one batched call, at most every 10 min
   const [drillRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
-  ST.drill=Number(drillRaw)/1e18;ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
+  ST.drill=Number(drillRaw)/1e18;ST.drillWei=BigInt(drillRaw);ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
   const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();renderUpBar();
   renderRefinery();refRefresh().then(renderRefinery).catch(e=>log("refinery: "+e.message));
@@ -905,31 +905,38 @@ const XFER_PRESETS=[{label:"KP",addr:"0x7082ee6Bb34a072a2Fb0F46180d10BCc9a9c07D3
 function encXfer(to,id,amount){return S.safeTransferFrom+ethers.AbiCoder.defaultAbiCoder().encode(["address","address","uint256","uint256","bytes"],[ST.addr,to,id,amount,"0x"]).slice(2);}
 function encXferBatch(to,ids,amounts){return S.safeBatchTransferFrom+ethers.AbiCoder.defaultAbiCoder().encode(["address","address","uint256[]","uint256[]","bytes"],[ST.addr,to,ids,amounts,"0x"]).slice(2);}
 function fillXferPresets(){const sel=$("xferPreset");if(!sel)return;sel.innerHTML='<option value="">Presets ▾</option>'+XFER_PRESETS.map(p=>'<option value="'+p.addr+'">'+p.label+'</option>').join("");}
+// what the picker points at: a stone (ERC-1155 id 0–11), Slush (ERC-1155 id 1000 on the same contract) or DRILL (ERC-20, 18 decimals)
+function xferItem(){const v=$("xferStone").value;if(v==="drill")return{kind:"drill",name:"DRILL",held:ST.drill||0,heldWei:ST.drillWei||0n};if(v==="slush")return{kind:"slush",id:SLUSH.id,name:"Slush",held:ST.slush||0};const id=Number(v||0);return{kind:"stone",id,name:STONE[id][0],held:ST.stones[id]||0};}
 function renderXfer(){const sel=$("xferStone");if(!sel)return;const cur=sel.value;
-  sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("");
-  if(cur!=="")sel.value=cur;xferHint();}
-function xferHint(){const el=$("xferHint");if(!el)return;const id=Number($("xferStone").value||0),held=ST.stones[id]||0;
+  sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("")+'<option value="slush">Slush — '+fmt(ST.slush||0)+' held</option><option value="drill">DRILL — '+fmt(ST.drill||0,2)+' held</option>';
+  if(cur!=="")sel.value=cur;const q=$("xferQty");if(q)q.inputMode=sel.value==="drill"?"decimal":"numeric";xferHint();}
+function xferHint(){const el=$("xferHint");if(!el)return;const it=xferItem(),held=it.held,dec=it.kind==="drill"?2:0;const q=$("xferQty");if(q)q.inputMode=it.kind==="drill"?"decimal":"numeric";   // DRILL takes decimals
   const to=($("xferTo").value||"").trim(),pre=XFER_PRESETS.find(p=>p.addr.toLowerCase()===to.toLowerCase()),who=pre?' → <b>'+pre.label+'</b>':(isAddr(to)?' → '+to.slice(0,6)+"…"+to.slice(-4):"");
-  el.innerHTML=!ST.canSign?"Connect your key to send — view-only can't transfer.":held>0?'You hold <b>'+fmt(held)+'</b> × '+STONE[id][0]+who+". Arrives instantly and <b>can't be undone</b> — double-check the address.":"You don't hold any "+STONE[id][0]+".";}
+  el.innerHTML=!ST.canSign?"Connect your key to send — view-only can't transfer.":held>0?'You hold <b>'+fmt(held,dec)+'</b> '+(it.kind==="drill"?'':'× ')+it.name+who+". Arrives instantly and <b>can't be undone</b> — double-check the address.":"You don't hold any "+it.name+".";}
 async function sendStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first — view-only can't send.");return;}
   const to=($("xferTo").value||"").trim();
   if(/[0-9a-fA-F]{64}/.test(to)){set("s-err","That looks like a private key — put a recipient address here.");return;}
   if(!isAddr(to)){set("s-err","Enter a valid 0x… recipient address.");return;}
   if(to.toLowerCase()===ST.addr.toLowerCase()){set("s-err","That's your own address — pick someone else.");return;}
-  const id=Number($("xferStone").value),qty=Math.floor(Number($("xferQty").value));
-  if(!(qty>0)){set("s-err","Enter a quantity greater than 0.");return;}
-  const held=ST.stones[id]||0;if(qty>held){set("s-err","You only hold "+fmt(held)+" × "+STONE[id][0]+".");return;}
-  const shortTo=to.slice(0,6)+"…"+to.slice(-4),dta=encXfer(to,id,qty);
+  const it=xferItem();let label,target,dta;
+  if(it.kind==="drill"){let wei;try{wei=ethers.parseUnits(String($("xferQty").value||"").trim(),18);}catch(e){set("s-err","Enter a DRILL amount like 12.5.");return;}
+    if(wei<=0n){set("s-err","Enter an amount greater than 0.");return;}
+    if(wei>(ST.drillWei||0n)){set("s-err","You only hold "+fmt(ST.drill||0,2)+" DRILL.");return;}
+    label=fmt(Number(wei)/1e18,2)+" DRILL";target=A.ore;dta=S.transfer+wa(to)+w(wei);}   // ERC-20 transfer(to, amount)
+  else{const qty=Math.floor(Number($("xferQty").value));if(!(qty>0)){set("s-err","Enter a quantity greater than 0.");return;}
+    if(qty>it.held){set("s-err","You only hold "+fmt(it.held)+" × "+it.name+".");return;}
+    label=fmt(qty)+" × "+it.name;target=A.stones;dta=encXfer(to,it.id,qty);}   // ERC-1155 safeTransferFrom (stones 0–11, Slush 1000)
+  const shortTo=to.slice(0,6)+"…"+to.slice(-4);
   try{
     set("s-wait","Simulating…");
-    try{await ethCall(A.stones,dta,ST.addr);}catch(e){set("s-err","Reverted: "+decodeErr(e)+" (a contract recipient may not accept ERC-1155).");return;}
-    set("s-wait","Sending "+fmt(qty)+" × "+STONE[id][0]+" to "+shortTo+"…");
-    const h=await send({to:A.stones,data:dta,value:"0x0"});log("XFER "+h);
-    set("s-ok","Sent "+fmt(qty)+" × "+STONE[id][0]+" to "+shortTo+" ✓");
+    try{await ethCall(target,dta,ST.addr);}catch(e){set("s-err","Reverted: "+decodeErr(e)+(it.kind==="drill"?"":" (a contract recipient may not accept ERC-1155)."));return;}
+    set("s-wait","Sending "+label+" to "+shortTo+"…");
+    const h=await send({to:target,data:dta,value:"0x0"});log("XFER "+h);
+    set("s-ok","Sent "+label+" to "+shortTo+" ✓");
     $("xferQty").value="";setTimeout(()=>loadAll(true),3500);
   }catch(e){set("s-err","Failed: "+decodeErr(e));}}
-// send every stone you hold to the recipient in ONE tx (ERC-1155 batch transfer; Slush isn't a stone so it's not included)
+// send every stone you hold to the recipient in ONE tx (ERC-1155 batch transfer of ids 0–11; Slush and DRILL go through the picker above)
 async function sendAllStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerHTML='<div class="status '+c+'">'+m+'</div>';};
   if(!ST.canSign||!WALLET){set("s-err","Connect your key first — view-only can't send.");return;}
   const to=($("xferTo").value||"").trim();
@@ -1279,7 +1286,7 @@ $("connectPK").onclick=connectPK;$("forget").onclick=forgetKey;$("loadRo").oncli
 $("pk").addEventListener("keydown",e=>{if(e.key==="Enter")connectPK();});
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&ST.addr&&!ST.busy)loadAll(true,true);else if(document.visibilityState==="hidden")histSave(true);});
 $("depBtn").onclick=deployRigs;$("depApprove").onclick=approveDrill;$("depTier").onchange=depEcon;$("depN").oninput=depEcon;$("depExt").onchange=depEcon;$("upBtn").onclick=()=>{const v=$("upSel").value;if(v&&v!=="—")upgradePlot(Number(v));};$("upSel").onchange=upSelChanged;
-$("xferBtn").onclick=sendStones;$("xferAllBtn").onclick=sendAllStones;$("xferMax").onclick=()=>{const id=Number($("xferStone").value||0);$("xferQty").value=ST.stones[id]||0;};$("xferStone").onchange=xferHint;$("xferTo").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});$("xferQty").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});
+$("xferBtn").onclick=sendStones;$("xferAllBtn").onclick=sendAllStones;$("xferMax").onclick=()=>{const it=xferItem();$("xferQty").value=it.kind==="drill"?ethers.formatUnits(ST.drillWei||0n,18):it.held;};$("xferStone").onchange=xferHint;$("xferTo").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});$("xferQty").addEventListener("keydown",e=>{if(e.key==="Enter")sendStones();});
 fillXferPresets();$("xferPreset").onchange=e=>{if(e.target.value)$("xferTo").value=e.target.value;xferHint();};$("xferTo").addEventListener("input",()=>{const s=$("xferPreset");if(s&&s.value&&s.value.toLowerCase()!==($("xferTo").value||"").trim().toLowerCase())s.selectedIndex=0;xferHint();});
 $("openAll").onclick=()=>setAllGates(1);$("closeAll").onclick=()=>setAllGates(0);
 $("collectBtn").onclick=()=>window.open(GAME,"_blank");
