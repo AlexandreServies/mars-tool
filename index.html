@@ -173,6 +173,12 @@
     </div>
   </div>
 
+  <!-- LEADERBOARD EPOCH (OIL) -->
+  <div class="card" id="epochCard" hidden>
+    <h2>Epoch OIL <span class="r" id="epochR"></span></h2>
+    <div class="sub" id="epochBody">loading…</div>
+  </div>
+
   <!-- MOON REFINERY -->
   <div class="card" id="refCard" hidden>
     <h2>Moon Refinery <span class="r" id="refR"></span></h2>
@@ -253,7 +259,7 @@ window.global=window.global||window;
 window.process=window.process||{env:{},version:'',browser:true,nextTick:function(f){setTimeout(f,0)}};
 const $=id=>document.getElementById(id);
 const CH_ID=4663,CH_HEX="0x1237";
-const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
+const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",site2:"0xe59675b161d912de23b810321bd6092b59947049",oil:"0x5cbe16f6651a56c80cfffe88da96625004a6049e",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
   land:"0x8878EA7fc881BFA0a6ECd7266125a664323e4278",ore:"0xd9d674b04a72affe00e06385535eaac10b988fca",
   stones:"0x063bdba5c8c29a57c6530f2668cfd040b1282118",treasury:"0x8C394DEAf48ec1bd11FA297707c96021207ed48E",
   market:"0x68eA283B0ff2D26fc7DDD5b4C30661DC524DE2Bc",market2:"0x58bbEBA135a4B6f913EC943b3a5D8574bbeB5211",poolMgr:"0x8366a39CC670B4001A1121B8F6A443A643e40951",
@@ -267,7 +273,7 @@ const LOT_MAX=9999,LOTS_MAX=5,LADDER_RUNGS=8,LADDER_MIN=25;   // ladder = up to 
 // $DRILL/WETH Uniswap-V4 pool state slot (poolId is fixed, so this storage slot is constant). currency0=WETH, currency1=DRILL.
 const POOL_SLOT0="0xb31eee6f69dbbb3d2196fc24f67df6f69a2650ec155ef676a95fda9a6b24299b";
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
-const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",
+const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",deployMany2:"0xed4a8c98",plantingEnabled:"0xf5c99374",rentalEconomy:"0x2af74f0f",bal1155:"0x00fdd58e",deferredOil:"0xd30d5318",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",transfer:"0xa9059cbb",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
@@ -277,7 +283,9 @@ const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slot
   refUpgrade:"0x1518905b",refBuySlots:"0x572315f9",refStake:"0x6c3187fc",refGrind:"0x68f6e4cf",refCollect:"0x793dedf4",refJobsOf:"0x6f10773e",refGrindJobOf:"0x7f413c2a",
   refLatestRecipe:"0x72b4087b",refRecipeOf:"0x151b5a2b",refGrinding:"0x6c037e78",refGrindLimits:"0x44acca8a",refLimits:"0x860aefcf",refTierOf:"0xaa2db6ab",refStateOf:"0x45b4903a",
   refCfgVer:"0xdd64d24d",refPublic:"0x07560ae6",refPaused:"0xb722e919"};
-const RIGCAP=100;
+let RIGCAP=100;   // slotsOf(you) on Drill Site V2, read every refresh
+const OIL_ID=666,SITE2_BLOCK=63895500;   // OIL = New Horizon Materials id 666; V2 site deploy block (Sep 15 19:16 UTC)
+const ownBonusPct=lv=>{const g=(OWNBONUS[lv]||0)*100,r=ST.rent||{min:10,max:25,lo:100,hi:500};return (r.min+Math.floor((Math.max(r.lo,Math.min(r.hi,g))-r.lo)*(r.max-r.min)/(r.hi-r.lo)))/100;};   // V2 rental bonus % of find: ground bps (old table×100) lerped between min and max
 const DEPTH_UNITS=10; // ask = lowest price reaching this depth — capped at 10% of the stone's book (min 1 unit) so thin stones still price
 const MINLOT=2;       // a lot under this size is dust — only when it is also a negligible slice (< DUST_FRAC) of what others have listed
 const DUST_FRAC=0.02,DEPTH_FRAC=0.1;
@@ -346,7 +354,8 @@ async function send(tx){if(!WALLET)throw new Error("Connect your key first");
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
 async function rpc(method,params){const url=$("rpc").value.trim();const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});const j=await r.json();if(j.error){const er=new Error(j.error.message||JSON.stringify(j.error));er.data=(j.error.data&&j.error.data.data)||j.error.data;throw er;}return j.result;}
 // contract error selectors -> readable reason (from the game's own decoder)
-const ERRMAP={"0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x711b0aa3":()=>"listing filled — re-planning","0x322e5520":()=>"listing partially filled — re-planning","0xe76fd45a":()=>"bid gone","0x863b7b1f":()=>"buyer lacks DRILL/approval","0xb39be4d2":()=>"lot over 9,999 units","0xfe30bf0c":()=>"more than 5 stones in one listing","0xb2a1e3df":()=>"same stone twice in one listing","0xb60c2453":()=>"price moved — re-planning","0xc56873ba":()=>"deadline passed — re-planning",
+const ERRMAP={"0xf1b6b5cc":()=>"legacy site is closed — Drill Site V2 only","0xc10cc93b":()=>"planting paused","0x77b19ff9":()=>"plot occupied","0x093fe961":()=>"no free rig slots","0x821bdd7d":()=>"plot owner blocked your wallet","0xebede0a4":()=>"rig tier not allowed on this plot","0x5b3147bf":()=>"site config changed — refresh and retry","0xcff70657":()=>"cost above your max (bet changed?)","0x203d82d8":()=>"deadline passed — retry","0x1cdde67b":()=>"closed to other players","0xc15af038":()=>"bad plot id","0x21a9b143":()=>"bad rig tier","0x7623fb52":()=>"not the plot holder","0x9488aaa6":()=>"not ready yet","0x37c864c1":()=>"unknown rig","0x86bdc25c":()=>"bad batch","0xdb735c38":()=>"legacy site not paused",
+  "0xaf610693":()=>"unique+ascending order (tool refreshing)","0xe700a255":()=>"at the 100-rig cap — collect to free slots","0x9c5ee43f":()=>"finished rig still in its collect window","0xe500c037":()=>"plot not minted","0x06556b7d":()=>"closed to other players","0x3cc3b57f":()=>"not ready yet","0xfb8f41b2":()=>"DRILL not approved for the market","0xe450d38c":()=>"not enough DRILL","0x711b0aa3":()=>"listing filled — re-planning","0x322e5520":()=>"listing partially filled — re-planning","0xe76fd45a":()=>"bid gone","0x863b7b1f":()=>"buyer lacks DRILL/approval","0xb39be4d2":()=>"lot over 9,999 units","0xfe30bf0c":()=>"more than 5 stones in one listing","0xb2a1e3df":()=>"same stone twice in one listing","0xb60c2453":()=>"price moved — re-planning","0xc56873ba":()=>"deadline passed — re-planning",
   // Moon Refinery (error names from the site's ABI)
   "0x169c48b7":()=>"refinery: paused by the game","0xc15c60b4":()=>"refinery: closed to the public right now (admin only)","0x07cc321c":()=>"refinery: bad config","0x67a2cc26":()=>"refinery: bad recipient",
   "0x21a9b143":()=>"refinery: no such tier","0xf9344d64":()=>"refinery: too many jobs or outputs at once","0x203d82d8":()=>"refinery: deadline passed — retry","0xd1d0aa79":()=>"refinery: over the per-ore grinding limit",
@@ -362,7 +371,7 @@ function decodeErr(e){let hex="";const d=e&&e.data;if(typeof d==="string")hex=d;
 const ethCall=(to,data,from)=>rpc("eth_call",[from?{to,data,from}:{to,data},"latest"]);
 async function cu(to,sel,arg=""){const r=await ethCall(to,sel+arg);return BigInt(r&&r!=="0x"?r:"0x0");}
 function decArrs(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const o0=parseInt(W(0),16)/32,o1=parseInt(W(1),16)/32;const rd=o=>{const n=parseInt(W(o),16),a=[];for(let k=0;k<n;k++)a.push(parseInt(W(o+1+k),16));return a;};return[rd(o0),rd(o1)];}
-function encDeploy(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployMany+w(96)+w(96+pB.length/2)+w(mx)+pB+tB;}
+function encDeploy(p,t,mx){const pB=w(p.length)+p.map(w).join(""),tB=w(t.length)+t.map(w).join("");return S.deployMany2+w(160)+w(160+pB.length/2)+w(ST.cfg2||0)+w(mx)+w(Math.floor(Date.now()/1000)+600)+pB+tB;}   // Drill Site V2: config version + 10-min deadline
 function encGates(parcels,open){const pB=w(parcels.length)+parcels.map(w).join(""),oB=w(parcels.length)+parcels.map(()=>w(open?1:0)).join("");return S.setGates+w(64)+w(64+pB.length/2)+pB+oB;}
 const MC3="0xcA11bde05977b3631167028862bE2a173976CA11";
 function encAgg3(calls){const tuples=calls.map(c=>{const cd=c.data.replace(/^0x/,"");const cdlen=cd.length/2;const padded=cd+"0".repeat((64-cd.length%64)%64);return wa(c.to)+w(1)+w(96)+w(cdlen)+padded;});const n=tuples.length;let run=n*32,offs="";for(const t of tuples){offs+=w(run);run+=t.length/2;}return "0x82ad56cb"+w(32)+w(n)+offs+tuples.join("");}
@@ -370,10 +379,10 @@ function decAgg3(hex){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+6
 // scan the map for other players' open + empty plots (excludes ids in `own`)
 async function scanExternal(need,own){const TOTAL=5000,BATCH=250,found=[],start=Math.floor(Math.random()*TOTAL);
   for(let off=0;off<TOTAL&&found.length<need;off+=BATCH){const ids=[];for(let k=0;k<BATCH&&(off+k)<TOTAL;k++)ids.push(((start+off+k)%TOTAL)+1);
-    const calls=[];ids.forEach(id=>{calls.push({to:A.site,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});});
+    const calls=[];ids.forEach(id=>{calls.push({to:A.site2,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});calls.push({to:A.site,data:S.occupantOf+w(id)});});
     let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){continue;}
-    for(let k=0;k<ids.length;k++){const id=ids[k];if(own.has(id))continue;const oc=dec[2*k]||{},op=dec[2*k+1]||{};
-      if(oc.success&&op.success&&BigInt(oc.data||"0x0")===0n&&BigInt(op.data||"0x0")===1n){found.push(id);if(found.length>=need)break;}}}
+    for(let k=0;k<ids.length;k++){const id=ids[k];if(own.has(id))continue;const oc=dec[3*k]||{},op=dec[3*k+1]||{},o1=dec[3*k+2]||{};
+      if(oc.success&&op.success&&o1.success&&BigInt(oc.data||"0x0")===0n&&BigInt(o1.data||"0x0")===0n&&BigInt(op.data||"0x0")===1n){found.push(id);if(found.length>=need)break;}}}
   return found;}
 
 function newProvider(){const net=new ethers.Network("robinhood",CH_ID);return new ethers.JsonRpcProvider($("rpc").value.trim(),net,{staticNetwork:net});}
@@ -479,14 +488,14 @@ function histLoad(){if(ST.hist)return ST.hist;let h=null;try{const s=localStorag
 let histSaved=0;
 function histSave(force){const h=ST.hist;if(!h||h.head==null||(!force&&Date.now()-histSaved<60000))return;histSaved=Date.now();try{const{plm,...rest}=h;localStorage.setItem(HIST_LS,JSON.stringify(rest));}catch(e){}}
 const blkTime=b=>{const h=ST.hist;return (h.headTs-(h.head-b)*h.spb)*1000;};   // block → wall-clock ms via the measured seconds/block
-async function histChunk(f,t,tries){try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.market,A.market2],topics:[HIST_TOPICS]}]);}
+async function histChunk(f,t,tries){try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.site2,A.market,A.market2],topics:[HIST_TOPICS]}]);}
   catch(e){if(tries>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tries)));return histChunk(f,t,tries-1);}return null;}}
 // rows — deploy: [readyAt(s), tier, planter index into h.pl] (so your own rigs can be told apart). market: [block, stone, units, DRILL value, kind] with kind 0 = part of a multi-stone
 // buy (value split by catalog weight), 1 = single-stone fill (exact unit price), 2 = listed (value = units × list price),
 // 3 = cancelled, 4 = sold into a bid. Kinds 0/1/4 are units bought (demand); 2/3 are units entering/leaving the ask side.
-function histIngest(logs){const h=ST.hist,site=A.site.toLowerCase();
+function histIngest(logs){const h=ST.hist,sites=new Set([A.site.toLowerCase(),A.site2.toLowerCase()]);
   for(const lg of logs){const d=(lg.data||"").replace(/^0x/,""),W=i=>d.slice(i*64,i*64+64),tp=lg.topics&&lg.topics[0],blk=parseInt(lg.blockNumber,16);
-    if((lg.address||"").toLowerCase()===site){if(d.length<128)continue;const tier=DUR2TIER[parseInt(W(1),16)];if(tier===undefined)continue;
+    if(sites.has((lg.address||"").toLowerCase())){if(d.length<128)continue;const tier=DUR2TIER[parseInt(W(1),16)];if(tier===undefined)continue;
       const pa="0x"+(lg.topics[1]||"").slice(26).toLowerCase();let pid=h.plm.get(pa);if(pid===undefined){pid=h.pl.length;h.pl.push(pa);h.plm.set(pa,pid);}h.dep.push([parseInt(W(0),16),tier,pid]);continue;}
     if(tp===MARKET_SALE_TOPIC){if(d.length<192)continue;const io=parseInt(W(0),16)/32,ao=parseInt(W(1),16)/32,price=Number(BigInt("0x"+W(2)))/1e18,k=parseInt(W(io),16);
       const ids=[],am=[];let tw=0;for(let j=0;j<k;j++){const id=parseInt(W(io+1+j),16),a=parseInt(W(ao+1+j),16);ids.push(id);am.push(a);if(id<12)tw+=a*(STONE[id][1]||1e-4);}
@@ -595,7 +604,7 @@ async function playersRefresh(force){if(playersBusy||(!force&&Date.now()-players
   try{const c=playersLoad();
     if(!c.tgeTs)c.tgeTs=(ST.supply&&ST.supply.tgeTs)||parseInt((await rpc("eth_getBlockByNumber",["0x"+DRILL_TGE_BLOCK.toString(16),false])).timestamp,16)*1000;
     const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
-    const one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:A.site,topics:[[DEPLOY_TOPIC,COLLECTED_TOPIC]]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tr)));return one(f,t,tr-1);}return null;}};
+    const one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.site2],topics:[[DEPLOY_TOPIC,COLLECTED_TOPIC]]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tr)));return one(f,t,tr-1);}return null;}};
     const live={};const setOf=hr=>live[hr]||(live[hr]=new Set(c.sets[hr]||[]));   // transient Sets over the stored arrays
     let last=c.head,stop=false;const PAR=4;
     for(let i=0;i<R.length&&!stop;i+=PAR){if(R.length>3){const r=$("playersR");if(r)r.textContent="scanning "+Math.round(100*i/R.length)+"%…";}
@@ -697,26 +706,31 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   levelsRefresh();       // planet plot-level snapshot: one batched call, at most every 10 min
   const [drillRaw,twRaw,stoneRaw,wsRaw]=await Promise.all([cu(A.ore,S.balanceOf,arg),cu(A.treasury,S.totalWeight),stoneBatch(ST.addr),cu(A.treasury,S.weightScale).catch(()=>100n)]);
   ST.drill=Number(drillRaw)/1e18;ST.drillWei=BigInt(drillRaw);ST.totalWeight=Number(twRaw);ST.weightScale=Number(wsRaw)||100;ST.stones=stoneRaw;
-  $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>';
+  $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>'+(ST.oil||ST.oilDeferred?' <small class="mut">· '+fmt(ST.oil||0)+(ST.oilDeferred?'+'+fmt(ST.oilDeferred)+' deferred':'')+' OIL</small>':'');
   const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();renderUpBar();
   renderRefinery();refRefresh().then(renderRefinery).catch(e=>log("refinery: "+e.message));
+  $("epochCard").hidden=false;renderEpoch();epochRefresh();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
   // occupant==0 = truly empty & plantable. A finished rig keeps occupant=driller until collected,
   // so occupant!=0 = has a rig (running OR finished-uncollected). The real deploy blocker is the 100-rig cap.
-  const plots=[];for(let s=0;s<ids.length;s+=120){const chunk=ids.slice(s,s+120),calls=[];chunk.forEach(id=>{calls.push({to:A.site,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});});
+  const plots=[];for(let s=0;s<ids.length;s+=120){const chunk=ids.slice(s,s+120),calls=[];chunk.forEach(id=>{calls.push({to:A.site2,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});calls.push({to:A.site,data:S.occupantOf+w(id)});});
     let dec=[];try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){}
-    chunk.forEach((id,k)=>{const oc=dec[2*k],op=dec[2*k+1],lv=levels[id]||1;plots.push({id,level:lv,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!oc||!oc.success||BigInt(oc.data||"0x0")===0n,weight:(WEIGHTAT[lv]||1)*(ST.weightScale||100)});});}
+    chunk.forEach((id,k)=>{const oc=dec[3*k],op=dec[3*k+1],o1=dec[3*k+2],lv=levels[id]||1;const busy=x=>!!(x&&x.success&&BigInt(x.data||"0x0")!==0n);plots.push({id,level:lv,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!busy(oc)&&!busy(o1),weight:(WEIGHTAT[lv]||1)*(ST.weightScale||100)});});}
   ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
   // active rigs (own + others' plots): siteOf(addr)=rig rows[tier,parcel,since,revealBlk,nonce], siteTiming(addr)=readyAt[]
-  try{const[soRaw,stRaw]=await Promise.all([ethCall(A.site,S.siteOf+arg),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x")]);
+  try{const[soRaw,stRaw,lsRaw,ltRaw,cfgRaw]=await Promise.all([ethCall(A.site2,S.siteOf+arg),ethCall(A.site2,S.siteTiming+arg).catch(()=>"0x"),ethCall(A.site,S.siteOf+arg).catch(()=>"0x"),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x"),
+      ethCall(MC3,encAgg3([{to:A.site2,data:S.refCfgVer},{to:A.site2,data:S.slotsOf+arg},{to:A.site2,data:S.plantingEnabled},{to:A.site2,data:S.rentalEconomy},{to:A.oil,data:S.bal1155+arg+w(OIL_ID)},{to:A.site2,data:S.deferredOil+arg+wa(A.oil)}])).catch(()=>"0x")]);
+    try{const d=decAgg3(cfgRaw);const U=k=>d[k]&&d[k].success?BigInt(d[k].data||"0x0"):null;ST.cfg2=U(0)!=null?Number(U(0)):ST.cfg2;const cap=U(1);if(cap!=null&&cap>0n&&cap<1000n)RIGCAP=Number(cap);ST.planting=U(2)==null?true:U(2)===1n;
+      if(d[3]&&d[3].success&&d[3].data.length>=2+64*4){const W=k=>Number(BigInt("0x"+d[3].data.slice(2+64*k,66+64*k)));ST.rent={min:W(0),max:W(1),lo:W(2),hi:W(3)};}ST.oil=U(4)!=null?Number(U(4)):ST.oil;ST.oilDeferred=U(5)!=null?Number(U(5)):0;}catch(e){}
     const rows=decRows(soRaw,5),rdy=decUintArr(stRaw),now=Math.floor(Date.now()/1000);
-    ST.rigs=rows.map((r,i)=>({tier:Number(r[0]),parcel:Number(r[1]),readyAt:Number(rdy[i]||0)}));
+    ST.rigs=rows.map((r,i)=>({tier:Number(r[0]),parcel:Number(r[1]),readyAt:Number(rdy[i]||0),v:2}));
+    try{if(lsRaw&&lsRaw.length>66){const lr=decRows(lsRaw,5),lt=decUintArr(ltRaw);lr.forEach((r,i)=>ST.rigs.push({tier:Number(r[0]),parcel:Number(r[1]),readyAt:Number(lt[i]||0),v:1}));}}catch(e){}   // legacy site: finished rigs still waiting for collection
     ST.active=ST.rigs.length;ST.ready=ST.rigs.filter(r=>r.readyAt&&r.readyAt<=now).length;
     const fut=ST.rigs.filter(r=>r.readyAt&&r.readyAt>now).map(r=>r.readyAt);ST.nextAt=fut.length?Math.min(...fut):0;
   }catch(e){ST.rigs=[];ST.active=0;ST.ready=0;ST.nextAt=0;}
-  try{ST.allow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.site)));}catch(e){ST.allow=0n;}
+  try{ST.allow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.site2)));}catch(e){ST.allow=0n;}
   const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty,openN=plots.filter(p=>p.open).length,openEmpty=plots.filter(p=>p.empty&&p.open).length;
   $("mPlots").textContent=plots.length;$("mPlotsX").textContent=openN+" open · "+busy+" rig";
   $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
@@ -890,9 +904,9 @@ function encXfer(to,id,amount){return S.safeTransferFrom+ethers.AbiCoder.default
 function encXferBatch(to,ids,amounts){return S.safeBatchTransferFrom+ethers.AbiCoder.defaultAbiCoder().encode(["address","address","uint256[]","uint256[]","bytes"],[ST.addr,to,ids,amounts,"0x"]).slice(2);}
 function fillXferPresets(){const sel=$("xferPreset");if(!sel)return;sel.innerHTML='<option value="">Presets ▾</option>'+XFER_PRESETS.map(p=>'<option value="'+p.addr+'">'+p.label+'</option>').join("");}
 // what the picker points at: a stone (ERC-1155 id 0–11), Slush (ERC-1155 id 1000 on the same contract) or DRILL (ERC-20, 18 decimals)
-function xferItem(){const v=$("xferStone").value;if(v==="drill")return{kind:"drill",name:"DRILL",held:ST.drill||0,heldWei:ST.drillWei||0n};if(v==="slush")return{kind:"slush",id:SLUSH.id,name:"Slush",held:ST.slush||0};const id=Number(v||0);return{kind:"stone",id,name:STONE[id][0],held:ST.stones[id]||0};}
+function xferItem(){const v=$("xferStone").value;if(v==="drill")return{kind:"drill",name:"DRILL",held:ST.drill||0,heldWei:ST.drillWei||0n};if(v==="slush")return{kind:"slush",id:SLUSH.id,name:"Slush",held:ST.slush||0};if(v==="oil")return{kind:"oil",id:OIL_ID,name:"OIL",held:ST.oil||0};const id=Number(v||0);return{kind:"stone",id,name:STONE[id][0],held:ST.stones[id]||0};}
 function renderXfer(){const sel=$("xferStone");if(!sel)return;const cur=sel.value;
-  sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("")+'<option value="slush">Slush — '+fmt(ST.slush||0)+' held</option><option value="drill">DRILL — '+fmt(ST.drill||0,2)+' held</option>';
+  sel.innerHTML=STONE.map((s,i)=>'<option value="'+i+'">'+s[0]+' — '+fmt(ST.stones[i]||0)+' held</option>').join("")+'<option value="slush">Slush — '+fmt(ST.slush||0)+' held</option><option value="oil">OIL — '+fmt(ST.oil||0)+' held</option><option value="drill">DRILL — '+fmt(ST.drill||0,2)+' held</option>';
   if(cur!=="")sel.value=cur;const q=$("xferQty");if(q)q.inputMode=sel.value==="drill"?"decimal":"numeric";xferHint();}
 function xferHint(){const el=$("xferHint");if(!el)return;const it=xferItem(),held=it.held,dec=it.kind==="drill"?2:0;const q=$("xferQty");if(q)q.inputMode=it.kind==="drill"?"decimal":"numeric";   // DRILL takes decimals
   const to=($("xferTo").value||"").trim(),pre=XFER_PRESETS.find(p=>p.addr.toLowerCase()===to.toLowerCase()),who=pre?' → <b>'+pre.label+'</b>':(isAddr(to)?' → '+to.slice(0,6)+"…"+to.slice(-4):"");
@@ -910,7 +924,7 @@ async function sendStones(){const out=$("xferOut"),set=(c,m)=>{if(out)out.innerH
     label=fmt(Number(wei)/1e18,2)+" DRILL";target=A.ore;dta=S.transfer+wa(to)+w(wei);}   // ERC-20 transfer(to, amount)
   else{const qty=Math.floor(Number($("xferQty").value));if(!(qty>0)){set("s-err","Enter a quantity greater than 0.");return;}
     if(qty>it.held){set("s-err","You only hold "+fmt(it.held)+" × "+it.name+".");return;}
-    label=fmt(qty)+" × "+it.name;target=A.stones;dta=encXfer(to,it.id,qty);}   // ERC-1155 safeTransferFrom (stones 0–11, Slush 1000)
+    label=fmt(qty)+" × "+it.name;target=it.kind==="oil"?A.oil:A.stones;dta=encXfer(to,it.id,qty);}   // ERC-1155 safeTransferFrom (stones 0–11, Slush 1000, OIL 666 on New Horizon Materials)
   const shortTo=to.slice(0,6)+"…"+to.slice(-4);
   try{
     set("s-wait","Simulating…");
@@ -1111,13 +1125,30 @@ async function refStart(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(
   await simSend(A.refinery,refData.stake(R,plan.jobs),o,plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' started — '+fmt(plan.slush)+' Slush in');}
 async function refGrind(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;const g=refGrindPlan();if(!g){err(o,'Nothing to grind.');return;}await simSend(A.refinery,refData.grind(R,g),o,'Grinding '+g.desc+' → '+fmt(g.slush)+' Slush in '+fmtSec(g.hours*3600));}
 async function refCollectGrind(id){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.collectGrind(id),o,'Grinding job #'+id+' collected');}
+// ---- leaderboard epoch (OIL): 5-day epochs, DRILL burned on paid rigs, top 100 share 10,000 OIL by rank ----
+let epochAt=0,epochBusy=false;
+async function epochRefresh(force){if(epochBusy||(!force&&Date.now()-epochAt<300000)||!ST.addr)return;epochBusy=true;
+  try{const r=await fetch(GAME+"/api/leaderboard/epochs?account="+ST.addr.toLowerCase(),{headers:{accept:"application/json"}});const j=await r.json();if(j.error)throw new Error(j.error);ST.epoch=j;epochAt=Date.now();}
+  catch(e){ST.epochErr=e.message||"unavailable";}finally{epochBusy=false;renderEpoch();}}
+function renderEpoch(){const el=$("epochBody");if(!el)return;const j=ST.epoch;if(!j){el.innerHTML=ST.epochErr?('Rank data comes from the game API, which only answers its own site — see <a href="'+GAME+'/leaderboard" target="_blank" rel="noopener">Drillers leaderboard</a>. Rules: 5-day epochs, only DRILL burned on paid rigs counts, top 100 split 10,000 OIL — rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first.'):"loading…";return;}
+  const e=j.epoch,rows=j.rows||[],me=j.own,pool=Number(e.poolOil),left=Math.max(0,e.endsAt-Date.now()),hh=Math.floor(left/3.6e6),mm=Math.floor(left/6e4)%60;
+  const sp=x=>Number(BigInt(x||"0"))/1e18;
+  $("epochR").textContent="#"+e.number+" · "+e.status+" · ends in "+hh+"h "+String(mm).padStart(2,"0")+"m";
+  let s="Pool <b>"+fmt(pool)+" OIL</b> per epoch · rank 1 "+fmt(pool*0.25)+" · 2 "+fmt(pool*0.15)+" · 3 "+fmt(pool*0.10)+" · 4–10 "+fmt(pool*0.025)+" · 11–20 "+fmt(pool*0.0125)+" · 21–30 "+fmt(pool*0.0075)+" · 31–40 "+fmt(pool*0.005)+" · 41–50 "+fmt(pool*0.0025)+" · 51–100 "+fmt(pool*0.001)+" · "+j.total+" wallets"+(j.claimsEnabled?"":" · claims not open yet");
+  if(me&&me.rank){const my=Number(me.oil||0);s+='<div style="margin-top:5px">You: <b>rank '+me.rank+'</b> · '+fmt(sp(me.spentWei))+' DRILL on '+me.rigs+' paid rigs · <b class="grn">'+fmt(my)+' OIL</b> projected';
+    const up=rows.filter(r=>r.rank<me.rank&&Number(r.oil)>my).sort((a,b)=>b.rank-a.rank)[0];if(up)s+=' · next tier: rank '+up.rank+' ('+fmt(Number(up.oil))+' OIL) needs > '+fmt(sp(up.spentWei))+' spent (+'+fmt(Math.max(0,sp(up.spentWei)-sp(me.spentWei)+1))+')';
+    const dn=rows.filter(r=>r.rank>me.rank&&Number(r.oil)<my).sort((a,b)=>a.rank-b.rank)[0];const chaser=rows.find(r=>r.rank===me.rank+1);if(chaser)s+=' · rank '+chaser.rank+' is '+fmt(sp(me.spentWei)-sp(chaser.spentWei))+' behind'+(dn?' (drop to '+fmt(Number(dn.oil))+' OIL below rank '+(dn.rank-1)+')':'');s+='</div>';}
+  else if(me===null||!me)s+='<div style="margin-top:5px">You: no paid rigs this epoch yet.</div>';
+  el.innerHTML=s;}
+async function claimOil(){const o=$("depOut");if(!await guardChain(o))return;await simSend(A.site2,"0x907bd915"+wa(A.oil)+wa(ST.addr),o,'Deferred OIL claimed');}
+window.claimOil=claimOil;
 async function guardChain(outEl){if(!ST.canSign||!WALLET){outEl.innerHTML='<div class="status s-err">Connect your key first (view-only can\'t sign).</div>';return false;}return true;}
 async function simSend(to,data,outEl,okmsg){
   try{await ethCall(to,data,ST.addr);}catch(e){outEl.innerHTML='<div class="status s-err">Sim reverted — not sent. '+decodeErr(e)+'</div>';return;}
   try{const h=await send({from:ST.addr,to,data,value:"0x0"});outEl.innerHTML='<div class="status s-ok">'+okmsg+' ✓ '+h.slice(0,14)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
   catch(e){outEl.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
 
-async function multicallEmpty(ids){const empty=new Set(),B=250;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.map(id=>({to:A.site,data:S.occupantOf+w(id)}));let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const r=dec[k]||{};if(r.success&&BigInt(r.data||"0x0")===0n)empty.add(id);});}return empty;}
+async function multicallEmpty(ids){const empty=new Set(),B=120;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);const calls=chunk.flatMap(id=>[{to:A.site2,data:S.occupantOf+w(id)},{to:A.site,data:S.occupantOf+w(id)}]);let dec;try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){chunk.forEach(id=>empty.add(id));continue;}chunk.forEach((id,k)=>{const a=dec[2*k]||{},b=dec[2*k+1]||{};if(a.success&&BigInt(a.data||"0x0")===0n&&b.success&&BigInt(b.data||"0x0")===0n)empty.add(id);});}return empty;}
 // higher-level plots pay a bigger planter bonus, so sort candidates by level descending
 async function sortByLevel(ids){if(ids.length<2)return{ids,lv:{}};const lv={};const B=400;for(let i=0;i<ids.length;i+=B){const chunk=ids.slice(i,i+B);try{const enc=S.levelsBatch+w(32)+w(chunk.length)+chunk.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=j=>h.slice(j*64,j*64+64);const len=parseInt(W(1),16);for(let j=0;j<len;j++)lv[chunk[j]]=parseInt(W(2+j),16)||1;}catch(e){}}return{ids:ids.slice().sort((a,b)=>(lv[b]||1)-(lv[a]||1)||a-b),lv};}
 // eth_call-probe candidates individually to find the ones that actually accept a rig right now
@@ -1126,7 +1157,7 @@ async function sortByLevel(ids){if(ids.length<2)return{ids,lv:{}};const lv={};co
 async function selectPlantable(idsPriority,want,tier,maxWei){const good=[],reasons={};
   const CAP=Math.min(idsPriority.length,Math.max(want+12,want*3,14),96),batch=idsPriority.slice(0,CAP),CH=18;
   for(let i=0;i<batch.length&&good.length<want;i+=CH){const chunk=batch.slice(i,i+CH);
-    const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site,encDeploy([id],[tier],maxWei),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false,why:decodeErr(e)};}}));
+    const res=await Promise.all(chunk.map(async id=>{try{await ethCall(A.site2,encDeploy([id],[tier],maxWei),ST.addr);return{id,ok:true};}catch(e){return{id,ok:false,why:decodeErr(e)};}}));
     for(const r of res){if(r.ok){good.push(r.id);}else{reasons[r.why]=(reasons[r.why]||0)+1;}}}
   return{good:good.slice(0,want),reasons};}
 // pack ids into {parcels,tiers} using available credits (best tier on highest-priority plot), then sort ASCENDING for the contract
@@ -1140,7 +1171,7 @@ function renderDeploy(){const capLeft=Math.max(0,RIGCAP-ST.active);
   const cur=parseInt($("depTier").value)||3,mkt=mktReady();
   $("depTier").innerHTML=TIERS.map(t=>{const ev=mkt?rigEVmkt(t):rigEV(t);return `<option value="${t.t}"${t.t===cur?' selected':''}>${t.n} · ${t.c} DRILL · ${fmtDur(t.h)} · ${(ev/t.c).toFixed(2)}×</option>`;}).join("");
   depEcon();
-  $("collectSub").innerHTML=ST.ready?('<span class="gold">'+ST.ready+' ready to collect</span> · reveal is on-site'):(ST.nextAt?('next in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+' · collect on site'):'reveal is operator-signed — on site');}
+  $("collectSub").innerHTML=(ST.ready?('<span class="gold">'+ST.ready+' ready to collect</span> · reveal is on-site'):(ST.nextAt?('next in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+' · collect on site'):'reveal is operator-signed — on site'))+' · paid V2 rigs pay 5% of the bet in OIL on collect'+(ST.oilDeferred?' · <button onclick="claimOil()" style="font-size:11px;padding:2px 7px">Claim '+fmt(ST.oilDeferred)+' deferred OIL</button>':'');}
 // compact "L11×2 · L9" histogram of plot levels
 function lvHist(ls){const m={};ls.forEach(l=>{m[l]=(m[l]||0)+1;});return Object.keys(m).map(Number).sort((a,b)=>b-a).map(k=>'L'+k+(m[k]>1?'×'+m[k]:'')).join(' · ');}
 function depEcon(){const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
@@ -1149,12 +1180,12 @@ function depEcon(){const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max
   let s;
   if(capLeft<=0)s='<span class="red">At '+RIGCAP+'/'+RIGCAP+' rig cap.</span> '+(ST.ready?ST.ready+' ready — ':'')+(ST.nextAt?'next finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+'Collect (in-game) to free slots.';
   else{s=want+'× '+t.n+' · '+fmtDur(t.h)+' · '+fmt(cost)+' DRILL';
-    s+=' · yields ~'+fmt(drill)+' DRILL'+(ore?'+'+fmt(ore)+' ore':'')+' ea ('+(yield1/t.c).toFixed(2)+'×) · rigs '+ST.active+'→'+(ST.active+want)+'/'+RIGCAP;
+    s+=' · yields ~'+fmt(drill)+' DRILL'+(ore?'+'+fmt(ore)+' ore':'')+' ea ('+(yield1/t.c).toFixed(2)+'×) + '+Math.floor(t.c*0.05)+' OIL · rigs '+ST.active+'→'+(ST.active+want)+'/'+RIGCAP;
     {const need=BigInt(cost)*10n**18n;if(ST.drill<cost)s+=' · <span class="red">need '+fmt(cost)+' DRILL, have '+fmt(ST.drill)+'</span>';else if(ST.allow<need)s+=' · <span class="gold">tap Approve first</span>';}
     // preview: the plots Place will use — your empty plots highest-level first (max personal take), then others' to fill
     if(ST.plots&&ST.plots.length){const ownEmpty=ST.plots.filter(p=>p.empty).sort((a,b)=>b.level-a.level||a.id-b.id);
       const pick=ownEmpty.slice(0,want),sf=want-pick.length,ext=$("depExt")&&$("depExt").checked;
-      const ownBonus=pick.reduce((a,p)=>a+drill*1.25*(OWNBONUS[p.level]||0)/100,0);
+      const ownBonus=pick.reduce((a,p)=>a+drill*1.25*ownBonusPct(p.level)/100,0);
       let pv=pick.length?('<b>'+lvHist(pick.map(p=>p.level))+'</b> yours'):'';
       if(sf>0)pv+=(pick.length?' · ':'')+(ext?('<span class="gold">+'+sf+' others’ (¼ bonus)</span>'):('<span class="red">'+sf+' more need others’ — tick it</span>'));
       const placeN=pick.length+(ext?sf:0),costN=placeN*t.c,net=placeN*yield1+ownBonus-costN;
@@ -1162,10 +1193,11 @@ function depEcon(){const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max
   $("depEcon").innerHTML=s;}
 async function approveDrill(){const o=$("depOut");if(!await guardChain(o))return;const t=TIERS[(parseInt($("depTier").value)||3)-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1));
   const amt=BigInt(t.c*n)*10n**18n;o.innerHTML='<div class="status s-wait">Approving '+fmt(t.c*n)+' DRILL…</div>';
-  try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site)+w(amt),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+fmt(t.c*n)+' DRILL ✓ — now tap Place.</div>';ST.allow=amt;setTimeout(loadAll,4000);}
+  try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.site2)+w(amt),value:"0x0"});log("APPROVE "+h);o.innerHTML='<div class="status s-ok">Approved '+fmt(t.c*n)+' DRILL ✓ — now tap Place.</div>';ST.allow=amt;setTimeout(loadAll,4000);}
   catch(e){o.innerHTML='<div class="status s-err">'+decodeErr(e)+'</div>';}}
 async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;ST.busy=true;try{
   const t=parseInt($("depTier").value)||3,tier=TIERS[t-1],n=Math.max(1,Math.min(200,parseInt($("depN").value)||1)),ext=$("depExt").checked;
+  if(ST.planting===false){o.innerHTML='<div class="status s-err">Planting is paused on Drill Site V2 right now.</div>';return;}
   const capLeft=Math.max(0,RIGCAP-ST.active);
   if(capLeft<=0){o.innerHTML='<div class="status s-err">At '+RIGCAP+'/'+RIGCAP+' rig cap — every plot reverts until slots free up. '+(ST.nextAt?'Next rig finishes in '+fmtMin(ST.nextAt-Math.floor(Date.now()/1000))+'. ':'')+(ST.ready?'<b>'+ST.ready+' ready now</b> — ':'')+'Collect in-game, then Place.</div>';return;}
   const want=Math.min(n,capLeft),perWei=BigInt(tier.c)*10n**18n;
@@ -1188,13 +1220,13 @@ async function deployRigs(){const o=$("depOut");if(!await guardChain(o))return;S
   let extN=parcels.filter(id=>!own.has(id)).length;
   o.innerHTML='<div class="status s-wait">Placing '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external)…</div>';
   let data=encDeploy(parcels,tiers,maxWei);
-  try{await ethCall(A.site,data,ST.addr);}
+  try{await ethCall(A.site2,data,ST.addr);}
   catch(e){const re=await selectPlantable(parcels,parcels.length,t,probeWei);
     if(!re.good.length){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e)+'. Tap Place again.</div>';return;}
     ({parcels,tiers}=packAscending(re.good,mkAvail(re.good.length),[t]));extN=parcels.filter(id=>!own.has(id)).length;
     data=encDeploy(parcels,tiers,BigInt(parcels.length*tier.c)*10n**18n);
-    try{await ethCall(A.site,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
-  try{const h=await send({from:ST.addr,to:A.site,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external) ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
+    try{await ethCall(A.site2,data,ST.addr);}catch(e2){o.innerHTML='<div class="status s-err">Contested — '+decodeErr(e2)+'. Tap Place again.</div>';return;}}
+  try{const h=await send({from:ST.addr,to:A.site2,data,value:"0x0"});o.innerHTML='<div class="status s-ok">Placed '+parcels.length+'× '+tier.n+' on '+lvHist(parcels.map(id=>idLevel[id]||1))+' ('+extN+' external) ✓ '+h.slice(0,12)+'…</div>';log("TX "+h);setTimeout(()=>loadAll(true),4500);}
   catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}
   }finally{ST.busy=false;}}
 async function waitTx(h){for(let i=0;i<50;i++){try{const r=await rpc("eth_getTransactionReceipt",[h]);if(r&&r.blockNumber)return r;}catch(e){}await new Promise(res=>setTimeout(res,400));}return null;}
@@ -1211,9 +1243,9 @@ async function upgradePlot(id){const o=$("actOut");const p=ST.plots.find(x=>x.id
     await simSend(A.plots,S.plotUpgrade+w(id),o,"Upgraded #"+id+" → L"+tgt);
   }finally{ST.busy=false;}}
 window.upgradePlot=upgradePlot;window.upToggle=upToggle;window.upSelAll=upSelAll;window.upgradeSelected=upgradeSelected;window.refBuild=refBuild;window.refBuySlots=refBuySlots;window.refStart=refStart;window.refGrind=refGrind;window.refCollectGrind=refCollectGrind;window.refData=refData;window.refGrindPlan=refGrindPlan;window.refStartPlan=refStartPlan;
-async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.site,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
+async function toggleGate(id,open){const o=$("actOut");if(!await guardChain(o))return;o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' #'+id+'…</div>';await simSend(A.plots,encGates([id],!!open),o,(open?'Opened':'Closed')+' #'+id);}
 window.toggleGate=toggleGate;
-async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.site,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
+async function setAllGates(open){const o=$("actOut");if(!await guardChain(o))return;const ids=ST.plots.filter(p=>p.open!==!!open).map(p=>p.id).slice(0,200);if(!ids.length){o.innerHTML='<div class="status s-ok">All already '+(open?'open':'gated')+'.</div>';return;}o.innerHTML='<div class="status s-wait">'+(open?'Opening':'Closing')+' '+ids.length+' plots…</div>';await simSend(A.plots,encGates(ids,!!open),o,(open?'Opened':'Closed')+' '+ids.length+' plots');}
 // ---- tool 1: DRILL/h optimizer. Per rig: minted DRILL (JZ schedule) + ore sold at ask or bid net of the 5% market fee
 // (Sand Rock/Rust = 0) + self-plant bonus on the plots it actually lands on − cost. A slot is busy for max(rig time,
 // your re-plant interval). The mix maximises DRILL/h under the two real limits — open rig slots and DRILL balance
@@ -1236,7 +1268,7 @@ function optPlan(){const per=optPer(),slots=Math.max(0,RIGCAP-ST.active),own=(ST
   const rigs=[];mix.mix.forEach(m=>{for(let k=0;k<m.n;k++)rigs.push(m.p);});rigs.sort((a,b)=>b.drill-a.drill);
   // self-plant bonus: your empty plots highest level first (owner+planter = 1.25× ownerBps), others' plots = planter ¼ at L1
   let bonusPH=0,ownUsed=0,phA=0,phB=0,cost=0;const out=Array(12).fill(0);
-  rigs.forEach((p,k)=>{const bf=k<own.length?1.25*(OWNBONUS[own[k].level]||0)/100:0.25*(OWNBONUS[1]||0)/100;if(k<own.length)ownUsed++;bonusPH+=p.drill*bf/p.H;
+  rigs.forEach((p,k)=>{const bf=k<own.length?1.25*ownBonusPct(own[k].level)/100:0.25*ownBonusPct(1)/100;if(k<own.length)ownUsed++;bonusPH+=p.drill*bf/p.H;
     const c=p.t.c;cost+=c;phA+=(p.drill+p.oreA-c)/p.H;phB+=(p.drill+p.oreB-c)/p.H;for(let s=0;s<12;s++)out[s]+=p.t.tray*p.t.odds[s]/1e4/p.H;});
   // graduation: smallest DRILL balance at which the dominant tier changes (same slots)
   let grad=null;{const cur=topTier(mix.mix);let d=Math.max(D,50);for(let k=0;k<90&&cap>0;k++){d*=1.1;const t=topTier(lpMix(per,cap,d).mix);if(t&&t!==cur){grad={D:d,t};break;}}}

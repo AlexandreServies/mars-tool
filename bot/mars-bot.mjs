@@ -68,7 +68,8 @@ function ladLots(stone, qty, frontWei) {
 const STONE_NAMES = ["Sand Rock","Rust","Basalt","Copper","Nickel","Silver","Gold","Platinum","Iridium","Mars Glass","Diamond","Core Blue"];
 
 const A = {
-  site:    "0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",
+  site:    "0xe59675b161d912de23b810321bd6092b59947049",   // Drill Site V2 (Sep 15): planting, rigs, collects
+  siteLegacy:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1", // legacy site: closed for planting, only old trays collect there
   plots:   "0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
   land:    "0x8878EA7fc881BFA0a6ECd7266125a664323e4278",
   ore:     "0xd9d674b04a72affe00e06385535eaac10b988fca",
@@ -81,7 +82,8 @@ const A = {
 const S = {
   balanceOf:        "0x70a08231", allowance:        "0xdd62ed3e",
   approve:          "0x095ea7b3", balanceOfBatch:  "0x4e1273f4", isApprovedForAll: "0xe985e9c5",
-  setApprovalForAll:"0xa22cb465", deployMany:       "0x6dcb2774", siteOf:          "0x018163dc",
+  setApprovalForAll:"0xa22cb465", deployMany:       "0xed4a8c98", siteOf:          "0x018163dc",   // V2 deployMany(uint16[],uint8[],uint64 version,uint256 maxCost,uint256 deadline)
+  configVersion:    "0xdd64d24d",
   isOpen:           "0x4d6861a6", collect:         "0xeeffeb45", list2:            "0x2a5c2925",
   cancelListing:    "0x40e58ee5",   // shared by both markets
 };
@@ -204,7 +206,9 @@ async function collectBatch(items) {
   const d = data(S.collect, ["uint256[]", "bytes32[]", "bytes[]"], [items.map((x) => x.nonce), items.map((x) => x.blockHash), items.map((x) => x.signature)]);
   try { await tx(A.site, d, `collect ${items.length}`); log(`  collected ${items.length} tray(s)`); }
   catch (e) {
-    if (items.length === 1) { log(`  skip tray nonce ${items[0].nonce}: ${errStr(e)}`); return; }
+    if (items.length === 1) {
+      try { await tx(A.siteLegacy, d, `collect legacy ${items.length}`); log(`  collected 1 legacy tray`); return; } catch (e2) {}
+      log(`  skip tray nonce ${items[0].nonce}: ${errStr(e)}`); return; }
     const mid = items.length >> 1;
     await collectBatch(items.slice(0, mid));
     await collectBatch(items.slice(mid));
@@ -238,12 +242,14 @@ async function plantHaulers() {
   if (want <= 0) { log(`plant: ${empties.length} empty, DRILL ${fmtWei(bal, 0)} funds 0 haulers (${HAULER_COST} ea${cfg.drillReserve ? `, reserve ${cfg.drillReserve}` : ""}${cfg.maxSpend ? `, cap ${cfg.maxSpend}/cycle` : ""})`); return; }
 
   const maxWei = BigInt(want * HAULER_COST) * ONE;
-  await ensureAllowance(A.site, maxWei, "site (DRILL)");
+  await ensureAllowance(A.site, maxWei, "site v2 (DRILL)");
+  const cfgVersion = BigInt(await call(A.site, S.configVersion));   // V2 rejects a plant built on a stale config (StaleConfig)
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
   // contract requires ascending parcel order; pick best (highest-level) plots then sort ascending
   const parcels = empties.slice(0, want).map((p) => p.id).sort((a, b) => a - b);
   const tiers = parcels.map(() => HAULER);
   log(`plant: ${want}× Hauler (${want * HAULER_COST} DRILL) on ${lvHist(empties.slice(0, want).map((p) => p.level))} — rigs ${active}->${active + want}/100`);
-  await tx(A.site, data(S.deployMany, ["uint256[]", "uint256[]", "uint256"], [parcels, tiers, maxWei]), `deploy ${want} haulers`);
+  await tx(A.site, data(S.deployMany, ["uint16[]", "uint8[]", "uint64", "uint256", "uint256"], [parcels, tiers, cfgVersion, maxWei, deadline]), `deploy ${want} haulers`);
 }
 const lvHist = (ls) => { const m = {}; ls.forEach((l) => (m[l] = (m[l] || 0) + 1)); return Object.keys(m).map(Number).sort((a, b) => b - a).map((k) => "L" + k + (m[k] > 1 ? "×" + m[k] : "")).join(" · "); };
 
