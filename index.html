@@ -315,7 +315,12 @@ const PRICE_H=48,PRICE_NB=96;
 // DRILL supply: hourly mint/burn totals since TGE (DRILL contract creation), cached per device, extended incrementally every 5 min
 const DRILL_TGE_BLOCK=58080230,SUPPLY_LS="mars_supply_v1",SUPPLY_MS=300000;
 // active players: distinct wallets that planted or collected a rig in each hour since TGE (site Deploy + Collected events)
-const COLLECTED_TOPIC="0x272da74aea4c15236a7fd471af9a12f644ff5d4a630c0898c59d304fe29a71ec",PLAYERS_LS="mars_players_v1",PLAYERS_SETS_H=48;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
+const COLLECTED_TOPIC="0x272da74aea4c15236a7fd471af9a12f644ff5d4a630c0898c59d304fe29a71ec",PLAYERS_LS="mars_players_v1",PLAYERS_SETS_H=48;
+// leaderboard epochs (OIL): 5-day epochs from Sep 13 2026 00:00 UTC, score = DRILL burned planting rigs (Deployed event: tier, readyAt, revealBlock, cost).
+// The game's API refuses other origins, so the ranking is rebuilt here from the same on-chain plants (credit rigs count here, not officially).
+const DEPLOYED_TOPIC="0x08f8b19b02e5ae4e5d76ec030c4c4bd5b7c901427b68a7b99143e73cfc7bac31",EPOCH0=1789257600000,EPOCH_MS=5*864e5,OIL_POOL=10000;
+const EPOCH_SHARE=r=>r===1?2500:r===2?1500:r===3?1000:r<=10?250:r<=20?125:r<=30?75:r<=40?50:r<=50?25:r<=100?10:0;   // bps of the pool by rank
+const epochNo=(t=Date.now())=>Math.floor((t-EPOCH0)/EPOCH_MS)+1;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
 const DUST=i=>i<2;
 const TIERS=[{t:1,n:"Scout",c:50,h:0.5,tray:79,odds:[5609,2490,1106,491,291,13,0,0,0,0,0,0]},{t:2,n:"Hauler",c:125,h:1,tray:87,odds:[4008,2427,1469,890,718,435,53,0,0,0,0,0]},{t:3,n:"Driller",c:350,h:2,tray:59,odds:[2655,1977,1473,1097,1089,811,484,360,54,0,0,0]},{t:4,n:"Excavator",c:900,h:4,tray:77,odds:[0,3283,2163,1425,1252,825,434,286,189,143,0,0]},{t:5,n:"Motherlode",c:2500,h:8,tray:62,odds:[0,0,2842,1989,1870,1318,744,503,370,250,110,4]}];
@@ -601,24 +606,37 @@ function playersLoad(){if(ST.players)return ST.players;let c=null;try{c=JSON.par
   if(!c||c.v!==1||!Array.isArray(c.hrs)||!Array.isArray(c.pl)||!Array.isArray(c.first)||typeof c.head!=="number")c={v:1,head:DEPLOY_BLOCK-1,tgeTs:0,hrs:[],sets:{},pl:[],first:[]};
   c.plm=new Map(c.pl.map((a,i)=>[a,i]));ST.players=c;return c;}
 async function playersRefresh(force){if(playersBusy||(!force&&Date.now()-playersAt<SUPPLY_MS))return;const h=ST.hist;if(!h||h.head==null)return;playersBusy=true;
-  try{const c=playersLoad();
+  try{const c=playersLoad();if(!c.ep)c.ep={};
     if(!c.tgeTs)c.tgeTs=(ST.supply&&ST.supply.tgeTs)||parseInt((await rpc("eth_getBlockByNumber",["0x"+DRILL_TGE_BLOCK.toString(16),false])).timestamp,16)*1000;
-    const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000,R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
-    const one=async(f,t,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.site2],topics:[[DEPLOY_TOPIC,COLLECTED_TOPIC]]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tr)));return one(f,t,tr-1);}return null;}};
+    const head=parseInt(await rpc("eth_blockNumber",[]),16),CH=9000;
+    const one=async(f,t,tp,tr)=>{try{return await rpc("eth_getLogs",[{fromBlock:"0x"+f.toString(16),toBlock:"0x"+t.toString(16),address:[A.site,A.site2],topics:[tp]}]);}catch(e){if(tr>0){await new Promise(r=>setTimeout(r,300*Math.pow(2,4-tr)));return one(f,t,tp,tr-1);}return null;}};
+    const pidOf=pa=>{let pid=c.plm.get(pa);if(pid===undefined){pid=c.pl.length;c.pl.push(pa);c.plm.set(pa,pid);c.first.push(Math.floor((Date.now()-c.tgeTs)/3.6e6));}return pid;};
+    const spend=(l,pa)=>{const d=(l.data||"").replace(/^0x/,"");if(d.length<256)return;const cost=Number(BigInt("0x"+d.slice(192,256)))/1e18;if(!(cost>0))return;const en=epochNo(blkTime(parseInt(l.blockNumber,16)));if(en<1)return;const e=c.ep[en]||(c.ep[en]={});const pid=pidOf(pa);e[pid]=(e[pid]||0)+cost;};
+    // one-time backfill of the running epoch's plants (block of the epoch start found by bisection), then it rides the incremental scan below
+    const en0=epochNo();if(c.epHead==null||c.epEpoch!==en0){const target=(EPOCH0+(en0-1)*EPOCH_MS)/1000;let lo=DEPLOY_BLOCK,hi=head;
+      while(lo<hi){const mid=Math.floor((lo+hi)/2);const b=await rpc("eth_getBlockByNumber",["0x"+mid.toString(16),false]);if(parseInt(b.timestamp,16)>=target)hi=mid;else lo=mid+1;}
+      const R=[];for(let b=lo;b<=Math.min(head,c.head);b+=CH)R.push([b,Math.min(b+CH-1,head,c.head)]);let ok=true;const ep={};c.ep={};
+      for(let i=0;i<R.length&&ok;i+=4){const r=$("epochR");if(r)r.textContent="scanning "+Math.round(100*i/Math.max(1,R.length))+"%…";const part=R.slice(i,i+4),res=await Promise.all(part.map(([f,t])=>one(f,t,[DEPLOYED_TOPIC],4)));
+        for(const lg of res){if(!Array.isArray(lg)){ok=false;break;}for(const l of lg){const pa="0x"+(l.topics[1]||"").slice(26).toLowerCase();if(pa.length===42)spend(l,pa);}}}
+      if(ok){c.epHead=c.head;c.epEpoch=en0;}}
+    const R=[];for(let b=c.head+1;b<=head;b+=CH)R.push([b,Math.min(b+CH-1,head)]);
     const live={};const setOf=hr=>live[hr]||(live[hr]=new Set(c.sets[hr]||[]));   // transient Sets over the stored arrays
     let last=c.head,stop=false;const PAR=4;
     for(let i=0;i<R.length&&!stop;i+=PAR){if(R.length>3){const r=$("playersR");if(r)r.textContent="scanning "+Math.round(100*i/R.length)+"%…";}
-      const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>one(f,t,4)));
+      const part=R.slice(i,i+PAR),res=await Promise.all(part.map(([f,t])=>one(f,t,[DEPLOY_TOPIC,COLLECTED_TOPIC,DEPLOYED_TOPIC],4)));
       for(let k=0;k<part.length;k++){const lg=res[k];if(!Array.isArray(lg)){stop=true;break;}
-        for(const l of lg){const pa="0x"+(l.topics[1]||"").slice(26).toLowerCase();if(pa.length!==42)continue;const hr=Math.floor((blkTime(parseInt(l.blockNumber,16))-c.tgeTs)/3.6e6);if(hr<0)continue;
+        for(const l of lg){const pa="0x"+(l.topics[1]||"").slice(26).toLowerCase();if(pa.length!==42)continue;if(l.topics[0]===DEPLOYED_TOPIC){if(c.epHead!=null)spend(l,pa);continue;}
+          const hr=Math.floor((blkTime(parseInt(l.blockNumber,16))-c.tgeTs)/3.6e6);if(hr<0)continue;
           let pid=c.plm.get(pa);if(pid===undefined){pid=c.pl.length;c.pl.push(pa);c.plm.set(pa,pid);c.first.push(hr);}setOf(hr).add(pid);}
         last=part[k][1];}}
     const nowHr=Math.floor((Date.now()-c.tgeTs)/3.6e6);
     for(const hr of Object.keys(live)){const s=[...live[hr]];c.sets[hr]=s;while(c.hrs.length<=hr)c.hrs.push([0,0]);c.hrs[hr]=[s.length,s.filter(p=>c.first[p]===Number(hr)).length];}
     for(const k of Object.keys(c.sets))if(nowHr-Number(k)>PLAYERS_SETS_H)delete c.sets[k];   // counts stay, wallet sets only for 48h
-    c.head=last;c.done=!stop;
+    for(const k of Object.keys(c.ep))if(Number(k)<epochNo()-1)delete c.ep[k];   // keep the running epoch and the one before
+    c.head=last;c.done=!stop;if(c.epHead!=null&&!stop)c.epHead=last;
     try{const{plm,...rest}=c;localStorage.setItem(PLAYERS_LS,JSON.stringify(rest));}catch(e){}
     if(stop){log("players scan paused at block "+last+" (RPC busy) — continues next refresh");const r=$("playersR");if(r)r.textContent="scanning…";}else{playersAt=Date.now();renderPlayers();}
+    renderEpoch();
   }catch(e){log("players: "+e.message);}finally{playersBusy=false;}}
 function renderPlayers(){const el=$("playersBody");if(!el)return;const c=ST.players;if(!c||!c.done||c.hrs.length<2){el.innerHTML='<div class="sub">'+(c&&c.hrs.length?'scanning…':'loading…')+'</div>';return;}
   const nowHr=Math.floor((Date.now()-c.tgeTs)/3.6e6),n=Math.max(2,Math.min(c.hrs.length,nowHr));   // full hours only: the running hour is dropped
@@ -709,7 +727,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   $("mDrill").innerHTML=fmt(ST.drill)+' <small>DRILL</small>'+(ST.oil||ST.oilDeferred?' <small class="mut">· '+fmt(ST.oil||0)+(ST.oilDeferred?'+'+fmt(ST.oilDeferred)+' deferred':'')+' OIL</small>':'');
   const sv=ST.stones.reduce((a,n,i)=>a+n*(DUST(i)?0:STONE[i][1]),0);$("mStoneVal").textContent=fmt(sv);renderStones();renderUpBar();
   renderRefinery();refRefresh().then(renderRefinery).catch(e=>log("refinery: "+e.message));
-  $("epochCard").hidden=false;renderEpoch();epochRefresh();
+  $("epochCard").hidden=false;renderEpoch();
   if(!quiet)setS("Loading plots…","s-wait");
   const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
@@ -1125,20 +1143,21 @@ async function refStart(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(
   await simSend(A.refinery,refData.stake(R,plan.jobs),o,plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' started — '+fmt(plan.slush)+' Slush in');}
 async function refGrind(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;const g=refGrindPlan();if(!g){err(o,'Nothing to grind.');return;}await simSend(A.refinery,refData.grind(R,g),o,'Grinding '+g.desc+' → '+fmt(g.slush)+' Slush in '+fmtSec(g.hours*3600));}
 async function refCollectGrind(id){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.collectGrind(id),o,'Grinding job #'+id+' collected');}
-// ---- leaderboard epoch (OIL): 5-day epochs, DRILL burned on paid rigs, top 100 share 10,000 OIL by rank ----
-let epochAt=0,epochBusy=false;
-async function epochRefresh(force){if(epochBusy||(!force&&Date.now()-epochAt<300000)||!ST.addr)return;epochBusy=true;
-  try{const r=await fetch(GAME+"/api/leaderboard/epochs?account="+ST.addr.toLowerCase(),{headers:{accept:"application/json"}});const j=await r.json();if(j.error)throw new Error(j.error);ST.epoch=j;epochAt=Date.now();}
-  catch(e){ST.epochErr=e.message||"unavailable";}finally{epochBusy=false;renderEpoch();}}
-function renderEpoch(){const el=$("epochBody");if(!el)return;const j=ST.epoch;if(!j){el.innerHTML=ST.epochErr?('Rank data comes from the game API, which only answers its own site — see <a href="'+GAME+'/leaderboard" target="_blank" rel="noopener">Drillers leaderboard</a>. Rules: 5-day epochs, only DRILL burned on paid rigs counts, top 100 split 10,000 OIL — rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first.'):"loading…";return;}
-  const e=j.epoch,rows=j.rows||[],me=j.own,pool=Number(e.poolOil),left=Math.max(0,e.endsAt-Date.now()),hh=Math.floor(left/3.6e6),mm=Math.floor(left/6e4)%60;
-  const sp=x=>Number(BigInt(x||"0"))/1e18;
-  $("epochR").textContent="#"+e.number+" · "+e.status+" · ends in "+hh+"h "+String(mm).padStart(2,"0")+"m";
-  let s="Pool <b>"+fmt(pool)+" OIL</b> per epoch · rank 1 "+fmt(pool*0.25)+" · 2 "+fmt(pool*0.15)+" · 3 "+fmt(pool*0.10)+" · 4–10 "+fmt(pool*0.025)+" · 11–20 "+fmt(pool*0.0125)+" · 21–30 "+fmt(pool*0.0075)+" · 31–40 "+fmt(pool*0.005)+" · 41–50 "+fmt(pool*0.0025)+" · 51–100 "+fmt(pool*0.001)+" · "+j.total+" wallets"+(j.claimsEnabled?"":" · claims not open yet");
-  if(me&&me.rank){const my=Number(me.oil||0);s+='<div style="margin-top:5px">You: <b>rank '+me.rank+'</b> · '+fmt(sp(me.spentWei))+' DRILL on '+me.rigs+' paid rigs · <b class="grn">'+fmt(my)+' OIL</b> projected';
-    const up=rows.filter(r=>r.rank<me.rank&&Number(r.oil)>my).sort((a,b)=>b.rank-a.rank)[0];if(up)s+=' · next tier: rank '+up.rank+' ('+fmt(Number(up.oil))+' OIL) needs > '+fmt(sp(up.spentWei))+' spent (+'+fmt(Math.max(0,sp(up.spentWei)-sp(me.spentWei)+1))+')';
-    const dn=rows.filter(r=>r.rank>me.rank&&Number(r.oil)<my).sort((a,b)=>a.rank-b.rank)[0];const chaser=rows.find(r=>r.rank===me.rank+1);if(chaser)s+=' · rank '+chaser.rank+' is '+fmt(sp(me.spentWei)-sp(chaser.spentWei))+' behind'+(dn?' (drop to '+fmt(Number(dn.oil))+' OIL below rank '+(dn.rank-1)+')':'');s+='</div>';}
-  else if(me===null||!me)s+='<div style="margin-top:5px">You: no paid rigs this epoch yet.</div>';
+// ---- leaderboard epoch (OIL): ranking rebuilt from on-chain plants (see DEPLOYED_TOPIC); the game API refuses other origins ----
+function renderEpoch(){const el=$("epochBody");if(!el)return;const c=ST.players,en=epochNo(),end=EPOCH0+en*EPOCH_MS,left=Math.max(0,end-Date.now()),hh=Math.floor(left/3.6e6),mm=Math.floor(left/6e4)%60;
+  $("epochR").textContent="#"+en+" · ends in "+hh+"h "+String(mm).padStart(2,"0")+"m";
+  const rules='Pool <b>'+fmt(OIL_POOL)+' OIL</b> per 5-day epoch to the top 100 by DRILL burned on paid rigs: rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first. Claims open later; the game shows recorded OIL in Profile.';
+  if(!c||!c.ep||!c.ep[en]||c.epHead==null){el.innerHTML=rules+'<div style="margin-top:5px" class="mut">'+(c&&c.epHead==null&&c.hrs&&c.hrs.length?'scanning this epoch’s plants…':'ranking loads with the players scan…')+'</div>';return;}
+  const me=ST.addr.toLowerCase(),rows=Object.entries(c.ep[en]).map(([pid,s])=>({a:c.pl[pid],s})).sort((a,b)=>b.s-a.s);rows.forEach((r,i)=>r.rank=i+1);
+  const mine=rows.find(r=>r.a===me);let s=rules;
+  if(!mine){s+='<div style="margin-top:5px">You: no plants counted this epoch yet · '+rows.length+' wallets ranked.</div>';el.innerHTML=s;return;}
+  const oil=OIL_POOL*EPOCH_SHARE(mine.rank)/1e4;
+  s+='<div style="margin-top:5px">You: <b>rank '+mine.rank+'</b> of '+rows.length+' · '+fmt(mine.s)+' DRILL burned · <b class="grn">'+fmt(oil)+' OIL</b> projected';
+  const up=rows.filter(r=>r.rank<mine.rank&&EPOCH_SHARE(r.rank)>EPOCH_SHARE(mine.rank)).sort((a,b)=>b.rank-a.rank)[0];
+  if(up)s+=' · rank '+up.rank+' ('+fmt(OIL_POOL*EPOCH_SHARE(up.rank)/1e4)+' OIL) needs > '+fmt(up.s)+' (+'+fmt(Math.max(0,up.s-mine.s+1))+')';
+  const chaser=rows[mine.rank];if(chaser)s+=' · next wallet is '+fmt(mine.s-chaser.s)+' behind';
+  const dn=rows.filter(r=>r.rank>mine.rank&&EPOCH_SHARE(r.rank)<EPOCH_SHARE(mine.rank)).sort((a,b)=>a.rank-b.rank)[0];if(dn)s+=' (below rank '+(dn.rank-1)+' pays '+fmt(OIL_POOL*EPOCH_SHARE(dn.rank)/1e4)+')';
+  s+='</div><div class="mut" style="margin-top:3px">On-chain estimate: credit rigs count here but not on the official board · top 3: '+rows.slice(0,3).map(r=>fmt(r.s)).join(" / ")+'</div>';
   el.innerHTML=s;}
 async function claimOil(){const o=$("depOut");if(!await guardChain(o))return;await simSend(A.site2,"0x907bd915"+wa(A.oil)+wa(ST.addr),o,'Deferred OIL claimed');}
 window.claimOil=claimOil;
