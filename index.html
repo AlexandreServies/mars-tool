@@ -173,10 +173,18 @@
     </div>
   </div>
 
-  <!-- LEADERBOARD EPOCH (OIL) -->
+  <!-- LEADERBOARD EPOCH (Space Credits) + Valleys raffle -->
   <div class="card" id="epochCard" hidden>
-    <h2>Epoch OIL <span class="r" id="epochR"></span></h2>
+    <h2>Epoch Space Credits <span class="r" id="epochR"></span></h2>
     <div class="sub" id="epochBody">loading…</div>
+  </div>
+
+  <!-- DRILL BANK: DRILL in, non-transferable xDRILL out; paid rigs mint a cut of their price to it once the site is connected -->
+  <div class="card" id="bankCard" hidden>
+    <h2>DRILL bank <span class="r" id="bankR"></span></h2>
+    <div class="sub" id="bankBody">reading the bank…</div>
+    <div class="btnrow" style="margin-top:6px;min-height:0;flex-wrap:wrap"><input id="bankAmt" type="number" min="0" step="any" placeholder="DRILL (empty = all)" oninput="renderBank()" style="width:150px;padding:3px 6px;font-size:11px" title="amount for Deposit / Withdraw — empty means your whole wallet / whole position"><span id="bankBar" style="display:contents"></span></div>
+    <div id="bankOut"></div>
   </div>
 
   <!-- MOON REFINERY -->
@@ -259,7 +267,7 @@ window.global=window.global||window;
 window.process=window.process||{env:{},version:'',browser:true,nextTick:function(f){setTimeout(f,0)}};
 const $=id=>document.getElementById(id);
 const CH_ID=4663,CH_HEX="0x1237";
-const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",site2:"0xe59675b161d912de23b810321bd6092b59947049",oil:"0x5cbe16f6651a56c80cfffe88da96625004a6049e",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
+const A={site:"0x776480e8cC2ae5492EC7744928BC9eD15b9F0Da1",site2:"0xe59675b161d912de23b810321bd6092b59947049",oil:"0x5cbe16f6651a56c80cfffe88da96625004a6049e",bank:"0x108fc41e9f8e382df198f2386e4335f9ea6148ab",raffle:"0x823ad6eba77e9561f9743896d3bc47c3db1430f3",plots:"0x1AcD1E34526bB65f363e81FC1273c479f50692CC",
   land:"0x8878EA7fc881BFA0a6ECd7266125a664323e4278",ore:"0xd9d674b04a72affe00e06385535eaac10b988fca",
   stones:"0x063bdba5c8c29a57c6530f2668cfd040b1282118",treasury:"0x8C394DEAf48ec1bd11FA297707c96021207ed48E",
   market:"0x68eA283B0ff2D26fc7DDD5b4C30661DC524DE2Bc",market2:"0x58bbEBA135a4B6f913EC943b3a5D8574bbeB5211",poolMgr:"0x8366a39CC670B4001A1121B8F6A443A643e40951",
@@ -274,6 +282,8 @@ const LOT_MAX=9999,LOTS_MAX=5,LADDER_RUNGS=8,LADDER_MIN=25;   // ladder = up to 
 const POOL_SLOT0="0xb31eee6f69dbbb3d2196fc24f67df6f69a2650ec155ef676a95fda9a6b24299b";
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
 const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",deployMany2:"0xed4a8c98",plantingEnabled:"0xf5c99374",rentalEconomy:"0x2af74f0f",bal1155:"0x00fdd58e",deferredOil:"0xd30d5318",
+  bkAssets:"0x01e1d114",bkSupply:"0x18160ddd",bkSettings:"0xe06174e4",bkValueOf:"0xa48028aa",bkPrincipalOf:"0x61e20a1c",bkLastAction:"0x085abff9",bkDeposit:"0xb6b55f25",bkWithdraw:"0x2e1a7d4d",bkClaim:"0x4e71d92d",
+  siteBank:"0x76cdb03b",bankToday:"0x3ac82f21",bankSchedule:"0x4ce6c873",freeRigsOf:"0x3e338229",rafTickets:"0xb99d6e29",rafCampaign:"0xccd39037",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",transfer:"0xa9059cbb",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
   siteOf:"0x018163dc",siteTiming:"0x9f02fd57",allowance:"0xdd62ed3e",groundBpsOf:"0x8aba7b46",weightScale:"0x333fedad",
@@ -316,9 +326,9 @@ const PRICE_H=48,PRICE_NB=96;
 const DRILL_TGE_BLOCK=58080230,SUPPLY_LS="mars_supply_v1",SUPPLY_MS=300000;
 // active players: distinct wallets that planted or collected a rig in each hour since TGE (site Deploy + Collected events)
 const COLLECTED_TOPIC="0x272da74aea4c15236a7fd471af9a12f644ff5d4a630c0898c59d304fe29a71ec",PLAYERS_LS="mars_players_v1",PLAYERS_SETS_H=48;
-// leaderboard epochs (OIL): 5-day epochs from Sep 13 2026 00:00 UTC, score = DRILL burned planting rigs (Deployed event: tier, readyAt, revealBlock, cost).
+// leaderboard epochs (Space Credits since Sep 17; was OIL): 5-day epochs from Sep 13 2026 00:00 UTC, score = DRILL burned planting paid rigs (Deployed event: tier, readyAt, revealBlock, cost).
 // The game's API refuses other origins, so the ranking is rebuilt here from the same on-chain plants (credit rigs count here, not officially).
-const DEPLOYED_TOPIC="0x08f8b19b02e5ae4e5d76ec030c4c4bd5b7c901427b68a7b99143e73cfc7bac31",EPOCH0=1789257600000,EPOCH_MS=5*864e5,OIL_POOL=10000;
+const DEPLOYED_TOPIC="0x08f8b19b02e5ae4e5d76ec030c4c4bd5b7c901427b68a7b99143e73cfc7bac31",EPOCH0=1789257600000,EPOCH_MS=5*864e5,EPOCH_POOL=10000;
 const EPOCH_SHARE=r=>r===1?2500:r===2?1500:r===3?1000:r<=10?250:r<=20?125:r<=30?75:r<=40?50:r<=50?25:r<=100?10:0;   // bps of the pool by rank
 const epochNo=(t=Date.now())=>Math.floor((t-EPOCH0)/EPOCH_MS)+1;   // price history: 48h of 30-min buckets (median fill price), kept in the cache beyond the raw 26h window
 // stones treated as worthless dust (0 value in rig EV + portfolio): index 0 Sand Rock, 1 Rust
@@ -749,6 +759,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
     const fut=ST.rigs.filter(r=>r.readyAt&&r.readyAt>now).map(r=>r.readyAt);ST.nextAt=fut.length?Math.min(...fut):0;
   }catch(e){ST.rigs=[];ST.active=0;ST.ready=0;ST.nextAt=0;}
   try{ST.allow=BigInt(await ethCall(A.ore,S.allowance+wa(ST.addr)+wa(A.site2)));}catch(e){ST.allow=0n;}
+  await bankRefresh(arg);
   const empty=plots.filter(p=>p.empty).length,busy=plots.length-empty,openN=plots.filter(p=>p.open).length,openEmpty=plots.filter(p=>p.empty&&p.open).length;
   $("mPlots").textContent=plots.length;$("mPlotsX").textContent=openN+" open · "+busy+" rig";
   $("mEmpty").textContent=empty;$("mEmptyX").textContent=empty?openEmpty+" open":"";$("mWeight").textContent=fmt(ST.myWeight)+" wt";
@@ -763,7 +774,7 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
 let AUTO=null;
 function startAuto(){if(AUTO)return;AUTO=setInterval(()=>{if(ST.addr&&!ST.busy&&document.visibilityState!=="hidden")loadAll(true,true);},20000);}
 function fmtMin(sec){if(sec<=0)return "now";const m=Math.round(sec/60);return m<60?m+"m":Math.floor(m/60)+"h"+(m%60?(m%60)+"m":"");}
-function rigLine(){const now=Math.floor(Date.now()/1000),s=[];if(ST.active>=RIGCAP)s.push('<span class="gold">FULL</span>');if(ST.ready)s.push('<span class="grn">'+ST.ready+' ready</span>');if(ST.nextAt)s.push("next "+fmtMin(ST.nextAt-now));return s.join(" · ");}
+function rigLine(){const now=Math.floor(Date.now()/1000),s=[];if(ST.active>=RIGCAP)s.push('<span class="gold">FULL</span>');if(ST.freeRigs&&ST.freeRigs.some(n=>n))s.push('<span class="grn" title="free rig credits granted by the game — used automatically when you plant that tier (no OIL, no leaderboard score, no bank cut)">free '+ST.freeRigs.map((n,i)=>n?n+'×'+TIERS[i].n:'').filter(Boolean).join(' ')+'</span>');if(ST.ready)s.push('<span class="grn">'+ST.ready+' ready</span>');if(ST.nextAt)s.push("next "+fmtMin(ST.nextAt-now));return s.join(" · ");}
 function decRows(hex,n){hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const off=parseInt(W(0),16)/32,len=parseInt(W(off),16),rows=[];for(let i=0;i<len;i++){const r=[];for(let k=0;k<n;k++)r.push(BigInt("0x"+W(off+1+i*n+k)));rows.push(r);}return rows;}
 function decUintArr(hex){if(!hex||hex==="0x")return[];hex=hex.replace(/^0x/,"");const W=i=>hex.slice(i*64,i*64+64);const off=parseInt(W(0),16)/32,len=parseInt(W(off),16),a=[];for(let i=0;i<len;i++)a.push(BigInt("0x"+W(off+1+i)));return a;}
 
@@ -1143,22 +1154,67 @@ async function refStart(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(
   await simSend(A.refinery,refData.stake(R,plan.jobs),o,plan.jobs.length+' job'+(plan.jobs.length>1?'s':'')+' started — '+fmt(plan.slush)+' Slush in');}
 async function refGrind(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(o))return;const g=refGrindPlan();if(!g){err(o,'Nothing to grind.');return;}await simSend(A.refinery,refData.grind(R,g),o,'Grinding '+g.desc+' → '+fmt(g.slush)+' Slush in '+fmtSec(g.hours*3600));}
 async function refCollectGrind(id){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.collectGrind(id),o,'Grinding job #'+id+' collected');}
-// ---- leaderboard epoch (OIL): ranking rebuilt from on-chain plants (see DEPLOYED_TOPIC); the game API refuses other origins ----
+// ---- leaderboard epoch (Space Credits): ranking rebuilt from on-chain plants (see DEPLOYED_TOPIC); the game API refuses other origins ----
+function raffleLine(){const r=ST.raffle;if(!r||!r.total)return '';const left=r.closes*1000-Date.now(),p=r.tickets/r.total,win=1-Math.pow(1-p,r.alloc||1);
+  return '<div class="mut" style="margin-top:3px">Valleys raffle (Yields Valley whitelist · '+r.alloc+' spots): your tickets <b>'+fmt(r.tickets)+'</b> of '+fmt(r.total)+' = '+fmt(100*p,2)+'% per draw · ≈ '+fmt(100*win,1)+'% to land a spot'+(left>0?' · closes in '+fmtSec(left/1000):' · <span class="red">closed</span>')+' · burn ORE in the Valleys (game) to add tickets</div>';}
 function renderEpoch(){const el=$("epochBody");if(!el)return;const c=ST.players,en=epochNo(),end=EPOCH0+en*EPOCH_MS,left=Math.max(0,end-Date.now()),hh=Math.floor(left/3.6e6),mm=Math.floor(left/6e4)%60;
   $("epochR").textContent="#"+en+" · ends in "+hh+"h "+String(mm).padStart(2,"0")+"m";
-  const rules='Pool <b>'+fmt(OIL_POOL)+' OIL</b> per 5-day epoch to the top 100 by DRILL burned on paid rigs: rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first. Claims open later; the game shows recorded OIL in Profile.';
-  if(!c||!c.ep||!c.ep[en]||c.epHead==null){el.innerHTML=rules+'<div style="margin-top:5px" class="mut">'+(c&&c.epHead==null&&c.hrs&&c.hrs.length?'scanning this epoch’s plants…':'ranking loads with the players scan…')+'</div>';return;}
+  const rules='Pool <b>'+fmt(EPOCH_POOL)+' Space Credits</b> per 5-day epoch to the top 100 by DRILL burned on paid rigs: rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first. Credits land in Profile after the epoch (not claimable yet) and will buy ship parts and upgrades; paid rigs before epoch 1 count as a pre-season paid the same way.',raf=raffleLine();
+  if(!c||!c.ep||!c.ep[en]||c.epHead==null){el.innerHTML=rules+'<div style="margin-top:5px" class="mut">'+(c&&c.epHead==null&&c.hrs&&c.hrs.length?'scanning this epoch’s plants…':'ranking loads with the players scan…')+'</div>'+raf;return;}
   const me=ST.addr.toLowerCase(),rows=Object.entries(c.ep[en]).map(([pid,s])=>({a:c.pl[pid],s})).sort((a,b)=>b.s-a.s);rows.forEach((r,i)=>r.rank=i+1);
   const mine=rows.find(r=>r.a===me);let s=rules;
-  if(!mine){s+='<div style="margin-top:5px">You: no plants counted this epoch yet · '+rows.length+' wallets ranked.</div>';el.innerHTML=s;return;}
-  const oil=OIL_POOL*EPOCH_SHARE(mine.rank)/1e4;
-  s+='<div style="margin-top:5px">You: <b>rank '+mine.rank+'</b> of '+rows.length+' · '+fmt(mine.s)+' DRILL burned · <b class="grn">'+fmt(oil)+' OIL</b> projected';
+  if(!mine){s+='<div style="margin-top:5px">You: no plants counted this epoch yet · '+rows.length+' wallets ranked.</div>';el.innerHTML=s+raf;return;}
+  const oil=EPOCH_POOL*EPOCH_SHARE(mine.rank)/1e4;
+  s+='<div style="margin-top:5px">You: <b>rank '+mine.rank+'</b> of '+rows.length+' · '+fmt(mine.s)+' DRILL burned · <b class="grn">'+fmt(oil)+' credits</b> projected';
   const up=rows.filter(r=>r.rank<mine.rank&&EPOCH_SHARE(r.rank)>EPOCH_SHARE(mine.rank)).sort((a,b)=>b.rank-a.rank)[0];
-  if(up)s+=' · rank '+up.rank+' ('+fmt(OIL_POOL*EPOCH_SHARE(up.rank)/1e4)+' OIL) needs > '+fmt(up.s)+' (+'+fmt(Math.max(0,up.s-mine.s+1))+')';
+  if(up)s+=' · rank '+up.rank+' ('+fmt(EPOCH_POOL*EPOCH_SHARE(up.rank)/1e4)+' credits) needs > '+fmt(up.s)+' (+'+fmt(Math.max(0,up.s-mine.s+1))+')';
   const chaser=rows[mine.rank];if(chaser)s+=' · next wallet is '+fmt(mine.s-chaser.s)+' behind';
-  const dn=rows.filter(r=>r.rank>mine.rank&&EPOCH_SHARE(r.rank)<EPOCH_SHARE(mine.rank)).sort((a,b)=>a.rank-b.rank)[0];if(dn)s+=' (below rank '+(dn.rank-1)+' pays '+fmt(OIL_POOL*EPOCH_SHARE(dn.rank)/1e4)+')';
-  s+='</div><div class="mut" style="margin-top:3px">On-chain estimate: credit rigs count here but not on the official board · top 3: '+rows.slice(0,3).map(r=>fmt(r.s)).join(" / ")+'</div>';
-  el.innerHTML=s;}
+  const dn=rows.filter(r=>r.rank>mine.rank&&EPOCH_SHARE(r.rank)<EPOCH_SHARE(mine.rank)).sort((a,b)=>a.rank-b.rank)[0];if(dn)s+=' (below rank '+(dn.rank-1)+' pays '+fmt(EPOCH_POOL*EPOCH_SHARE(dn.rank)/1e4)+')';
+  s+='</div><div class="mut" style="margin-top:3px">On-chain estimate from paid plants (free rigs excluded) · top 3: '+rows.slice(0,3).map(r=>fmt(r.s)).join(" / ")+'</div>';
+  el.innerHTML=s+raf;}
+// ---- DRILL bank (xDRILL): DRILL in, non-transferable xDRILL out. Once the game connects it, every paid rig mints a cut of its price to the bank (planned 0.25% until 5,000 DRILL/day, then 0.05% to 10,000, 0.01% to 20,000, 0.001% beyond) on top of the normal burn.
+// Maturity runs 0→100% over decaySeconds (7 d) from your last deposit/withdraw/claim; leaving early keeps maxPenalty×(1−maturity) of the amount in the bank for the others and resets you to 0%; a deposit pulls maturity back in proportion.
+const BANK_TIERS={caps:[5000,10000,20000],ppm:[2500,500,100,10]};   // planned schedule (game client default) until bankSchedule() is live on the site
+async function bankRefresh(arg){try{const bc=[{to:A.bank,data:S.bkAssets},{to:A.bank,data:S.bkSupply},{to:A.bank,data:S.bkSettings},{to:A.bank,data:S.balanceOf+arg},{to:A.bank,data:S.bkValueOf+arg},{to:A.bank,data:S.bkPrincipalOf+arg},{to:A.bank,data:S.bkLastAction+arg},{to:A.ore,data:S.allowance+arg+wa(A.bank)},
+    {to:A.site2,data:S.siteBank},{to:A.site2,data:S.bankToday},{to:A.site2,data:S.bankSchedule},{to:A.site2,data:S.freeRigsOf+arg},{to:A.raffle,data:S.rafTickets+w(1)+arg},{to:A.raffle,data:S.rafCampaign+w(1)}];
+    const d=decAgg3(await ethCall(MC3,encAgg3(bc)));const Wd=(k,i)=>d[k]&&d[k].success&&d[k].data.length>=66+64*i?BigInt("0x"+d[k].data.slice(2+64*i,66+64*i)):null,U=k=>Wd(k,0);
+    if(U(0)==null||U(1)==null)throw new Error("bank unreadable");
+    const b={assets:U(0),supply:U(1),maxPen:Wd(2,0)||0n,decay:Wd(2,1)||0n,minDep:Wd(2,2)||0n,paused:Wd(2,3)===1n,shares:U(3)||0n,value:U(4)||0n,principal:U(5)||0n,last:U(6)||0n,allow:U(7)||0n};
+    b.site=U(8)!=null?"0x"+d[8].data.slice(26,66):null;b.connected=!!(b.site&&BigInt(b.site)!==0n);
+    if(b.connected&&U(9)!=null)b.today={day:Number(Wd(9,0)||0n),minted:Number(Wd(9,1)||0n)/1e18};
+    if(b.connected&&Wd(10,7)!=null)b.sched={since:Number(Wd(10,0)),caps:[1,2,3].map(i=>Number(Wd(10,i))/1e18),ppm:[4,5,6,7].map(i=>Number(Wd(10,i)))};
+    ST.bank=b;if(Wd(11,4)!=null)ST.freeRigs=[0,1,2,3,4].map(i=>Number(Wd(11,i)));
+    if(U(12)!=null&&Wd(13,8)!=null)ST.raffle={tickets:Number(U(12)),total:Number(Wd(13,5)),alloc:Number(Wd(13,7)),closes:Number(Wd(13,8))};
+  }catch(e){log("bank: "+e.message);}
+  $("bankCard").hidden=false;renderBank();renderEpoch();}
+function bankMintPerDay(burn,sch){let m=0,left=burn;for(let i=0;i<4;i++){const cap=i<3?sch.caps[i]:Infinity,rate=sch.ppm[i]/1e6,room=cap-m;if(room<=0)continue;const take=Math.min(left*rate,room);m+=take;left-=take/rate;if(left<=0)break;}return m;}
+function renderBank(){const el=$("bankBody"),b=ST.bank;if(!el)return;if(!b){$("bankR").textContent="";el.innerHTML='<span class="mut">bank unreadable right now — retrying on the next refresh</span>';$("bankBar").innerHTML='';return;}
+  const f=x=>Number(x)/1e18,now=Math.floor(Date.now()/1000),decay=Number(b.decay),maxPen=Number(b.maxPen),ratio=b.supply>0n?Number(b.assets*10n**24n/b.supply)/1e18:1,sch=b.sched||BANK_TIERS;   // xDRILL has 24 decimals
+  $("bankR").textContent=b.connected?'connected · day '+((b.today?b.today.day:0)+1)+' · '+fmt(b.today?b.today.minted:0)+' DRILL minted today':'contract live · not connected to the Drill Site yet';
+  let burn=0;try{const c=ST.players,en=epochNo();if(c&&c.ep&&c.ep[en]){const tot=Object.values(c.ep[en]).reduce((a,x)=>a+x,0),days=Math.max(0.25,(Date.now()-(EPOCH0+(en-1)*EPOCH_MS))/864e5);burn=tot/days;}}catch(e){}
+  const mint=burn?bankMintPerDay(burn,sch):0,banked=f(b.assets);
+  let s='1 xDRILL = <b>'+fmt(ratio,4)+'</b> DRILL · bank holds <b>'+fmt(banked)+'</b> DRILL for '+fmt(Number(b.supply)/1e24)+' xDRILL'+(b.paused?' · <span class="red">deposits paused</span>':'');
+  s+='<div class="mut" style="margin-top:3px">Paid rigs '+(b.connected?'mint':'will mint')+' a cut of their DRILL price to the bank on top of the burn: '+sch.ppm.map((p,i)=>(p/1e4)+'% '+(i===0?'until '+fmtK(sch.caps[0]):i<3?'to '+fmtK(sch.caps[i]):'beyond')).join(' · ')+' DRILL minted per day.'
+    +(burn?' At this epoch’s pace ('+fmtK(burn)+' DRILL/day of paid rigs) that is ≈ <b>'+fmt(mint)+' DRILL/day</b> for the whole bank'+(banked>1?' = '+fmt(100*mint/banked,2)+'%/day on what is banked now':'')+'.':'')
+    +' Leaving before 7 days keeps up to '+(maxPen/100)+'% in the bank for the others (shrinks linearly to 0 at full maturity) and resets your maturity; a deposit pulls maturity back in proportion to its size.'+(b.connected?'':' <b>No income until the game connects it.</b>')+'</div>';
+  if(b.shares>0n){const el2=Number(b.last)?Math.min(decay,now-Number(b.last)):decay,prog=decay?el2/decay:1,pen=decay&&el2<decay?maxPen*(decay-el2)/decay:0,val=f(b.value),pr=f(b.principal),gr=Math.max(0,val-pr),share=b.supply>0n?Number(b.shares*10000n/b.supply)/100:0;
+    s+='<div style="margin-top:5px">You: <b>'+fmt(val,2)+'</b> DRILL ('+fmt(pr,2)+' deposited + <b class="grn">'+fmt(gr,2)+'</b> growth) · '+fmt(share,2)+'% of the bank · maturity <b>'+Math.floor(prog*100)+'%</b>'+(el2<decay?' (full in '+fmtSec(decay-el2)+')':'')+(mint&&share?' · ≈ '+fmt(mint*share/100,1)+' DRILL/day to you':'')+'</div>';
+    s+='<div class="mut">Withdraw all now → <b>'+fmt(val*(1-pen/1e4),2)+'</b> DRILL ('+fmt(val*pen/1e4,2)+' stays in the bank) · claim growth now → '+fmt(gr*(1-pen/1e4),2)+' DRILL</div>';}
+  else s+='<div style="margin-top:5px">You hold no xDRILL.'+(mint?' 10,000 DRILL banked today would take ≈ '+fmt(mint*10000/(banked+10000),1)+' DRILL/day of the mint at this pace (more depositors = smaller share).':'')+'</div>';
+  el.innerHTML=s;
+  const amt=parseFloat(($("bankAmt")||{}).value)||0,depAmt=amt||ST.drill||0,depWei=BigInt(Math.floor(depAmt*1e6))*10n**12n,bar=[];
+  if(!b.paused&&depAmt>0)bar.push(b.allow<depWei?'<button class="mini" onclick="bankApprove()" title="one-time DRILL allowance for the bank">Allow '+fmt(depAmt)+' DRILL</button>':'<button class="mini g" onclick="bankDeposit()" title="DRILL → xDRILL at the current ratio (min '+fmt(f(b.minDep))+' DRILL)">Deposit '+fmt(depAmt)+' DRILL</button>');
+  if(b.shares>0n){bar.push('<button class="mini sec" onclick="bankWithdraw()" title="burn xDRILL for DRILL — leaving early keeps part in the bank and resets maturity">Withdraw '+(amt?fmt(amt)+' DRILL':'all')+'</button>');if(b.value>b.principal)bar.push('<button class="mini sec" onclick="bankClaim()" title="pays out growth only, resets maturity">Claim growth</button>');}
+  $("bankBar").innerHTML=bar.join("");}
+async function bankApprove(){const o=$("bankOut");if(!await guardChain(o))return;const amt=parseFloat($("bankAmt").value)||ST.drill||0,wei=BigInt(Math.floor(amt*1e6))*10n**12n;if(wei<=0n){err(o,'Nothing to allow.');return;}
+  try{const h=await send({from:ST.addr,to:A.ore,data:S.approve+wa(A.bank)+w(wei*2n),value:"0x0"});log("APPROVE bank "+h);o.innerHTML='<div class="status s-ok">Allowed '+fmt(amt*2)+' DRILL for the bank ✓ — now tap Deposit.</div>';ST.bank.allow=wei*2n;renderBank();}catch(e){o.innerHTML='<div class="status s-err">Wallet rejected: '+decodeErr(e)+'</div>';}}
+async function bankDeposit(){const o=$("bankOut");if(!await guardChain(o))return;const b=ST.bank,amt=parseFloat($("bankAmt").value)||ST.drill||0,wei=BigInt(Math.floor(amt*1e6))*10n**12n;
+  if(wei<b.minDep){err(o,'Minimum deposit is '+fmt(Number(b.minDep)/1e18)+' DRILL.');return;}if(wei>ST.drillWei){err(o,'Not enough DRILL in the wallet.');return;}if(b.allow<wei){err(o,'Allow the bank first.');return;}
+  await simSend(A.bank,S.bkDeposit+w(wei),o,fmt(amt)+' DRILL deposited → xDRILL'+(b.connected?'':' (no income until the game connects the bank)'));}
+async function bankWithdraw(){const o=$("bankOut");if(!await guardChain(o))return;const b=ST.bank;if(!b||b.shares<=0n){err(o,'No xDRILL.');return;}const amt=parseFloat($("bankAmt").value)||0;let sh=b.shares;if(amt>0){const wei=BigInt(Math.floor(amt*1e6))*10n**12n;if(wei<b.value)sh=b.shares*wei/b.value;}
+  await simSend(A.bank,S.bkWithdraw+w(sh),o,'Withdrew '+(sh===b.shares?'all':fmt(amt)+' DRILL')+' — the maturing part stays in the bank');}
+async function bankClaim(){const o=$("bankOut");if(!await guardChain(o))return;await simSend(A.bank,S.bkClaim,o,'Growth claimed — maturity reset to 0%');}
+window.bankApprove=bankApprove;window.bankDeposit=bankDeposit;window.bankWithdraw=bankWithdraw;window.bankClaim=bankClaim;window.renderBank=renderBank;
 async function claimOil(){const o=$("depOut");if(!await guardChain(o))return;await simSend(A.site2,"0x907bd915"+wa(A.oil)+wa(ST.addr),o,'Deferred OIL claimed');}
 window.claimOil=claimOil;
 async function guardChain(outEl){if(!ST.canSign||!WALLET){outEl.innerHTML='<div class="status s-err">Connect your key first (view-only can\'t sign).</div>';return false;}return true;}
