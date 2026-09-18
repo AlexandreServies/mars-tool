@@ -175,13 +175,13 @@
 
   <!-- LEADERBOARD EPOCH (Space Credits) + Valleys raffle -->
   <div class="card" id="epochCard" hidden>
-    <h2>Epoch Space Credits <span class="r" id="epochR"></span></h2>
+    <h2 title="10,000 Space Credits per 5-day epoch to the top 100 by DRILL burned on paid rigs. Rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties: first to reach the score. Credits land in Profile after the epoch (not claimable yet); pre-season (before epoch 1) paid the same way. Ranking here is rebuilt from on-chain paid plants.">Epoch Space Credits <span class="r" id="epochR"></span></h2>
     <div class="sub" id="epochBody">loading…</div>
   </div>
 
   <!-- DRILL BANK: DRILL in, non-transferable xDRILL out; paid rigs mint a cut of their price to it once the site is connected -->
   <div class="card" id="bankCard" hidden>
-    <h2>DRILL bank <span class="r" id="bankR"></span></h2>
+    <h2 id="bankH">DRILL bank <span class="r" id="bankR"></span></h2>
     <div class="sub" id="bankBody">reading the bank…</div>
     <div class="btnrow" style="margin-top:6px;min-height:0;flex-wrap:wrap"><input id="bankAmt" type="number" min="0" step="any" placeholder="DRILL (empty = all)" oninput="renderBank()" style="width:150px;padding:3px 6px;font-size:11px" title="amount for Deposit / Withdraw — empty means your whole wallet / whole position"><span id="bankBar" style="display:contents"></span></div>
     <div id="bankOut"></div>
@@ -1156,22 +1156,20 @@ async function refGrind(){const o=$("refOut"),R=ST.ref;if(!R||!await guardChain(
 async function refCollectGrind(id){const o=$("refOut");if(!ST.ref||!await guardChain(o))return;await simSend(A.refinery,refData.collectGrind(id),o,'Grinding job #'+id+' collected');}
 // ---- leaderboard epoch (Space Credits): ranking rebuilt from on-chain plants (see DEPLOYED_TOPIC); the game API refuses other origins ----
 function raffleLine(){const r=ST.raffle;if(!r||!r.total)return '';const left=r.closes*1000-Date.now(),p=r.tickets/r.total,win=1-Math.pow(1-p,r.alloc||1);
-  return '<div class="mut" style="margin-top:3px">Valleys raffle (Yields Valley whitelist · '+r.alloc+' spots): your tickets <b>'+fmt(r.tickets)+'</b> of '+fmt(r.total)+' = '+fmt(100*p,2)+'% per draw · ≈ '+fmt(100*win,1)+'% to land a spot'+(left>0?' · closes in '+fmtSec(left/1000):' · <span class="red">closed</span>')+' · burn ORE in the Valleys (game) to add tickets</div>';}
+  return '<div class="mut" style="margin-top:3px" title="Yields Valley whitelist raffle, '+r.alloc+' spots, drawn outside the game after it closes. Burn ORE in the Valleys (game) to add tickets.">Raffle: <b>'+fmt(r.tickets)+'</b> / '+fmt(r.total)+' tickets · '+fmt(100*p,2)+'% · ≈ '+fmt(100*win,1)+'% for a spot'+(left>0?' · closes '+fmtSec(left/1000):' · <span class="red">closed</span>')+'</div>';}
 function renderEpoch(){const el=$("epochBody");if(!el)return;const c=ST.players,en=epochNo(),end=EPOCH0+en*EPOCH_MS,left=Math.max(0,end-Date.now()),hh=Math.floor(left/3.6e6),mm=Math.floor(left/6e4)%60;
   $("epochR").textContent="#"+en+" · ends in "+hh+"h "+String(mm).padStart(2,"0")+"m";
-  const rules='Pool <b>'+fmt(EPOCH_POOL)+' Space Credits</b> per 5-day epoch to the top 100 by DRILL burned on paid rigs: rank 1 2,500 · 2 1,500 · 3 1,000 · 4–10 250 · 11–20 125 · 21–30 75 · 31–40 50 · 41–50 25 · 51–100 10. Ties go to whoever reached the score first. Credits land in Profile after the epoch (not claimable yet) and will buy ship parts and upgrades; paid rigs before epoch 1 count as a pre-season paid the same way.',raf=raffleLine();
-  if(!c||!c.ep||!c.ep[en]||c.epHead==null){el.innerHTML=rules+'<div style="margin-top:5px" class="mut">'+(c&&c.epHead==null&&c.hrs&&c.hrs.length?'scanning this epoch’s plants…':'ranking loads with the players scan…')+'</div>'+raf;return;}
+  const raf=raffleLine();
+  if(!c||!c.ep||!c.ep[en]||c.epHead==null){el.innerHTML='<span class="mut">'+(c&&c.epHead==null&&c.hrs&&c.hrs.length?'scanning…':'waiting for the players scan…')+'</span>'+raf;return;}
   const me=ST.addr.toLowerCase(),rows=Object.entries(c.ep[en]).map(([pid,s])=>({a:c.pl[pid],s})).sort((a,b)=>b.s-a.s);rows.forEach((r,i)=>r.rank=i+1);
-  const mine=rows.find(r=>r.a===me);let s=rules;
-  if(!mine){s+='<div style="margin-top:5px">You: no plants counted this epoch yet · '+rows.length+' wallets ranked.</div>';el.innerHTML=s+raf;return;}
-  const oil=EPOCH_POOL*EPOCH_SHARE(mine.rank)/1e4;
-  s+='<div style="margin-top:5px">You: <b>rank '+mine.rank+'</b> of '+rows.length+' · '+fmt(mine.s)+' DRILL burned · <b class="grn">'+fmt(oil)+' credits</b> projected';
+  const mine=rows.find(r=>r.a===me),top='<div class="mut" style="margin-top:3px">top 3: '+rows.slice(0,3).map(r=>fmt(r.s)).join(" / ")+'</div>';
+  if(!mine){el.innerHTML='You: 0 DRILL burned · '+rows.length+' ranked'+top+raf;return;}
+  let s='You: <b>#'+mine.rank+'</b>/'+rows.length+' · <b>'+fmt(mine.s)+'</b> DRILL → <b class="grn">'+fmt(EPOCH_POOL*EPOCH_SHARE(mine.rank)/1e4)+' credits</b>';
   const up=rows.filter(r=>r.rank<mine.rank&&EPOCH_SHARE(r.rank)>EPOCH_SHARE(mine.rank)).sort((a,b)=>b.rank-a.rank)[0];
-  if(up)s+=' · rank '+up.rank+' ('+fmt(EPOCH_POOL*EPOCH_SHARE(up.rank)/1e4)+' credits) needs > '+fmt(up.s)+' (+'+fmt(Math.max(0,up.s-mine.s+1))+')';
-  const chaser=rows[mine.rank];if(chaser)s+=' · next wallet is '+fmt(mine.s-chaser.s)+' behind';
-  const dn=rows.filter(r=>r.rank>mine.rank&&EPOCH_SHARE(r.rank)<EPOCH_SHARE(mine.rank)).sort((a,b)=>a.rank-b.rank)[0];if(dn)s+=' (below rank '+(dn.rank-1)+' pays '+fmt(EPOCH_POOL*EPOCH_SHARE(dn.rank)/1e4)+')';
-  s+='</div><div class="mut" style="margin-top:3px">On-chain estimate from paid plants (free rigs excluded) · top 3: '+rows.slice(0,3).map(r=>fmt(r.s)).join(" / ")+'</div>';
-  el.innerHTML=s+raf;}
+  if(up)s+=' · #'+up.rank+' ('+fmt(EPOCH_POOL*EPOCH_SHARE(up.rank)/1e4)+') at +'+fmt(Math.max(0,up.s-mine.s+1));
+  const chaser=rows[mine.rank];if(chaser)s+=' · next −'+fmt(mine.s-chaser.s);
+  const dn=rows.filter(r=>r.rank>mine.rank&&EPOCH_SHARE(r.rank)<EPOCH_SHARE(mine.rank)).sort((a,b)=>a.rank-b.rank)[0];if(dn)s+=' · below #'+(dn.rank-1)+' pays '+fmt(EPOCH_POOL*EPOCH_SHARE(dn.rank)/1e4);
+  el.innerHTML=s+top+raf;}
 // ---- DRILL bank (xDRILL): DRILL in, non-transferable xDRILL out. Once the game connects it, every paid rig mints a cut of its price to the bank (planned 0.25% until 5,000 DRILL/day, then 0.05% to 10,000, 0.01% to 20,000, 0.001% beyond) on top of the normal burn.
 // Maturity runs 0→100% over decaySeconds (7 d) from your last deposit/withdraw/claim; leaving early keeps maxPenalty×(1−maturity) of the amount in the bank for the others and resets you to 0%; a deposit pulls maturity back in proportion.
 const BANK_TIERS={caps:[5000,10000,20000],ppm:[2500,500,100,10]};   // planned schedule (game client default) until bankSchedule() is live on the site
@@ -1187,20 +1185,19 @@ async function bankRefresh(arg){try{const bc=[{to:A.bank,data:S.bkAssets},{to:A.
     if(U(12)!=null&&Wd(13,8)!=null)ST.raffle={tickets:Number(U(12)),total:Number(Wd(13,5)),alloc:Number(Wd(13,7)),closes:Number(Wd(13,8))};
   }catch(e){log("bank: "+e.message);}
   $("bankCard").hidden=false;renderBank();renderEpoch();}
+function bankBurnFromMint(m,sch){let burn=0,prev=0;for(let i=0;i<4;i++){const cap=i<3?sch.caps[i]:Infinity,rate=sch.ppm[i]/1e6;if(m<=cap){return burn+(m-prev)/rate;}burn+=(cap-prev)/rate;prev=cap;}return burn;}   // inverse of bankMintPerDay
 function bankMintPerDay(burn,sch){let m=0,left=burn;for(let i=0;i<4;i++){const cap=i<3?sch.caps[i]:Infinity,rate=sch.ppm[i]/1e6,room=cap-m;if(room<=0)continue;const take=Math.min(left*rate,room);m+=take;left-=take/rate;if(left<=0)break;}return m;}
-function renderBank(){const el=$("bankBody"),b=ST.bank;if(!el)return;if(!b){$("bankR").textContent="";el.innerHTML='<span class="mut">bank unreadable right now — retrying on the next refresh</span>';$("bankBar").innerHTML='';return;}
-  const f=x=>Number(x)/1e18,now=Math.floor(Date.now()/1000),decay=Number(b.decay),maxPen=Number(b.maxPen),ratio=b.supply>0n?Number(b.assets*10n**24n/b.supply)/1e18:1,sch=b.sched||BANK_TIERS;   // xDRILL has 24 decimals
-  $("bankR").textContent=b.connected?'connected · day '+((b.today?b.today.day:0)+1)+' · '+fmt(b.today?b.today.minted:0)+' DRILL minted today':'contract live · not connected to the Drill Site yet';
-  let burn=0;try{const c=ST.players,en=epochNo();if(c&&c.ep&&c.ep[en]){const tot=Object.values(c.ep[en]).reduce((a,x)=>a+x,0),days=Math.max(0.25,(Date.now()-(EPOCH0+(en-1)*EPOCH_MS))/864e5);burn=tot/days;}}catch(e){}
-  const mint=burn?bankMintPerDay(burn,sch):0,banked=f(b.assets);
-  let s='1 xDRILL = <b>'+fmt(ratio,4)+'</b> DRILL · bank holds <b>'+fmt(banked)+'</b> DRILL for '+fmt(Number(b.supply)/1e24)+' xDRILL'+(b.paused?' · <span class="red">deposits paused</span>':'');
-  s+='<div class="mut" style="margin-top:3px">Paid rigs '+(b.connected?'mint':'will mint')+' a cut of their DRILL price to the bank on top of the burn: '+sch.ppm.map((p,i)=>(p/1e4)+'% '+(i===0?'until '+fmtK(sch.caps[0]):i<3?'to '+fmtK(sch.caps[i]):'beyond')).join(' · ')+' DRILL minted per day.'
-    +(burn?' At this epoch’s pace ('+fmtK(burn)+' DRILL/day of paid rigs) that is ≈ <b>'+fmt(mint)+' DRILL/day</b> for the whole bank'+(banked>1?' = '+fmt(100*mint/banked,2)+'%/day on what is banked now':'')+'.':'')
-    +' Leaving before 7 days keeps up to '+(maxPen/100)+'% in the bank for the others (shrinks linearly to 0 at full maturity) and resets your maturity; a deposit pulls maturity back in proportion to its size.'+(b.connected?'':' <b>No income until the game connects it.</b>')+'</div>';
+function renderBank(){const el=$("bankBody"),b=ST.bank;if(!el)return;if(!b){$("bankR").textContent="";el.innerHTML='<span class="mut">bank unreadable — retrying</span>';$("bankBar").innerHTML='';return;}
+  const f=x=>Number(x)/1e18,now=Math.floor(Date.now()/1000),decay=Number(b.decay),maxPen=Number(b.maxPen),ratio=b.supply>0n?Number(b.assets*10n**24n/b.supply)/1e18:1,sch=b.sched||BANK_TIERS,banked=f(b.assets);   // xDRILL has 24 decimals
+  $("bankR").textContent=b.connected?'day '+((b.today?b.today.day:0)+1)+' · '+fmt(b.today?b.today.minted:0)+' minted today':'not connected to the Drill Site yet';
+  $("bankH").title='DRILL in → xDRILL (not transferable). Paid rigs mint a cut of their price to the bank: '+sch.ppm.map((p,i)=>(p/1e4)+'% '+(i===0?'until '+fmtK(sch.caps[0]):i<3?'to '+fmtK(sch.caps[i]):'beyond')).join(', ')+' DRILL minted per bank day. Maturity 0→100% over '+Math.round(decay/86400)+' days from your last deposit/withdraw/claim; leaving early keeps up to '+(maxPen/100)+'% (linear) in the bank for the others and resets you to 0%; a deposit pulls maturity back in proportion to its size. Free rigs add nothing.';
+  let perDay=0;if(b.connected&&b.today&&b.sched&&b.sched.since){const e=now-(b.sched.since+b.today.day*86400);if(e>=7200)perDay=bankMintPerDay(bankBurnFromMint(b.today.minted,sch)*86400/e,sch);}   // today's real mint → implied paid-rig burn → projected through the tier caps
+  if(!perDay){let burn=0;try{const c=ST.players,en=epochNo();if(c&&c.ep&&c.ep[en]){const tot=Object.values(c.ep[en]).reduce((a,x)=>a+x,0),days=Math.max(0.25,(Date.now()-(EPOCH0+(en-1)*EPOCH_MS))/864e5);burn=tot/days;}}catch(e){}perDay=burn?bankMintPerDay(burn,sch):0;}
+  let s='1 xDRILL = <b>'+fmt(ratio,4)+'</b> · banked <b>'+fmt(banked)+'</b> DRILL'+(perDay?' · in ≈ <b>'+fmt(perDay)+'</b>/day = '+fmt(100*perDay/Math.max(1,banked),2)+'%/day':'')+(b.paused?' · <span class="red">deposits paused</span>':'');
   if(b.shares>0n){const el2=Number(b.last)?Math.min(decay,now-Number(b.last)):decay,prog=decay?el2/decay:1,pen=decay&&el2<decay?maxPen*(decay-el2)/decay:0,val=f(b.value),pr=f(b.principal),gr=Math.max(0,val-pr),share=b.supply>0n?Number(b.shares*10000n/b.supply)/100:0;
-    s+='<div style="margin-top:5px">You: <b>'+fmt(val,2)+'</b> DRILL ('+fmt(pr,2)+' deposited + <b class="grn">'+fmt(gr,2)+'</b> growth) · '+fmt(share,2)+'% of the bank · maturity <b>'+Math.floor(prog*100)+'%</b>'+(el2<decay?' (full in '+fmtSec(decay-el2)+')':'')+(mint&&share?' · ≈ '+fmt(mint*share/100,1)+' DRILL/day to you':'')+'</div>';
-    s+='<div class="mut">Withdraw all now → <b>'+fmt(val*(1-pen/1e4),2)+'</b> DRILL ('+fmt(val*pen/1e4,2)+' stays in the bank) · claim growth now → '+fmt(gr*(1-pen/1e4),2)+' DRILL</div>';}
-  else s+='<div style="margin-top:5px">You hold no xDRILL.'+(mint?' 10,000 DRILL banked would take ≈ '+fmt(mint*10000/(banked+10000),1)+' DRILL/day of that mint while only '+fmt(banked)+' DRILL is banked — every new depositor shrinks the share.':'')+'</div>';
+    s+='<div style="margin-top:4px">You: <b>'+fmt(val,2)+'</b> = '+fmt(pr,2)+' + <b class="grn">'+fmt(gr,2)+'</b> · '+fmt(share,2)+'% · maturity <b>'+Math.floor(prog*100)+'%</b>'+(el2<decay?' (full in '+fmtSec(decay-el2)+')':'')+(perDay&&share?' · ≈ '+fmt(perDay*share/100,1)+'/day':'')+'</div>';
+    s+='<div class="mut">withdraw all → <b>'+fmt(val*(1-pen/1e4),2)+'</b> ('+fmt(val*pen/1e4,2)+' stays) · claim growth → '+fmt(gr*(1-pen/1e4),2)+'</div>';}
+  else s+='<div class="mut" style="margin-top:4px">no xDRILL</div>';
   el.innerHTML=s;
   const amt=parseFloat(($("bankAmt")||{}).value)||0,depAmt=amt||ST.drill||0,depWei=BigInt(Math.floor(depAmt*1e6))*10n**12n,bar=[];
   if(!b.paused&&depAmt>0)bar.push(b.allow<depWei?'<button class="mini" onclick="bankApprove()" title="one-time DRILL allowance for the bank">Allow '+fmt(depAmt)+' DRILL</button>':'<button class="mini g" onclick="bankDeposit()" title="DRILL → xDRILL at the current ratio (min '+fmt(f(b.minDep))+' DRILL)">Deposit '+fmt(depAmt)+' DRILL</button>');
