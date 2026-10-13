@@ -159,6 +159,7 @@
   <div class="card" id="portCard" hidden>
     <h2>Plots <span class="r" id="portR"></span></h2>
     <div id="upBar" class="btnrow" style="margin-bottom:6px;min-height:0"></div>
+    <div id="burnBar" class="btnrow" style="margin-bottom:6px;min-height:0;flex-wrap:wrap"></div>
     <div class="scroll" id="portTbl"></div>
     <div id="portOut"></div>
   </div>
@@ -282,7 +283,7 @@ const LOT_MAX=9999,LOTS_MAX=5,LADDER_RUNGS=8,LADDER_MIN=25;   // ladder = up to 
 const POOL_SLOT0="0xb31eee6f69dbbb3d2196fc24f67df6f69a2650ec155ef676a95fda9a6b24299b";
 const DEPLOY_BLOCK=58080205, TRANSFER="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", GAME="https://project-mars.app";
 const S={balanceOf:"0x70a08231",occupantOf:"0x251286ef",isOpen:"0x4d6861a6",slotsOf:"0x8ac48a59",deployMany2:"0xed4a8c98",plantingEnabled:"0xf5c99374",rentalEconomy:"0x2af74f0f",bal1155:"0x00fdd58e",deferredOil:"0xd30d5318",
-  bkAssets:"0x01e1d114",bkSupply:"0x18160ddd",bkSettings:"0xe06174e4",bkValueOf:"0xa48028aa",bkPrincipalOf:"0x61e20a1c",bkLastAction:"0x085abff9",bkDeposit:"0xb6b55f25",bkWithdraw:"0x2e1a7d4d",bkClaim:"0x4e71d92d",
+  bkAssets:"0x01e1d114",bkSupply:"0x18160ddd",bkSettings:"0xe06174e4",bkValueOf:"0xa48028aa",bkPrincipalOf:"0x61e20a1c",bkLastAction:"0x085abff9",bkDeposit:"0xb6b55f25",bkWithdraw:"0x2e1a7d4d",bkClaim:"0x4e71d92d",burnPlot:"0xafd1a1f3",ownerOf:"0x6352211e",
   siteBank:"0x76cdb03b",bankToday:"0x3ac82f21",bankSchedule:"0x4ce6c873",freeRigsOf:"0x3e338229",rafTickets:"0xb99d6e29",rafCampaign:"0xccd39037",
   levelsBatch:"0xcabfa47a",balBatch:"0x4e1273f4",totalWeight:"0x96c82e57",deployMany:"0x6dcb2774",approve:"0x095ea7b3",transfer:"0xa9059cbb",
   plotUpgrade:"0x45977d03",costOf:"0xb4001bf0",maxLevel:"0xa49062d4",setGates:"0xd9ffdeaf",
@@ -739,14 +740,17 @@ async function loadAll(light,quiet){if(REFRESHING)return;REFRESHING=true;try{
   renderRefinery();refRefresh().then(renderRefinery).catch(e=>log("refinery: "+e.message));
   $("epochCard").hidden=false;renderEpoch();
   if(!quiet)setS("Loading plots…","s-wait");
-  const ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
+  let ids=(light&&ST.plots.length)?ST.plots.map(p=>p.id):await ownedPlots(ST.addr);
+  // a burned or sold plot can linger in the log cache: verify ownerOf for every id in one multicall and keep only ours
+  try{const keep=[];for(let s=0;s<ids.length;s+=150){const ch=ids.slice(s,s+150),dec=decAgg3(await ethCall(MC3,encAgg3(ch.map(id=>({to:A.land,data:S.ownerOf+w(id)})))));ch.forEach((id,k)=>{const d=dec[k];if(d&&d.success&&d.data.length>=66&&("0x"+d.data.slice(26,66)).toLowerCase()===ST.addr.toLowerCase())keep.push(id);});}
+    if(keep.length!==ids.length){log("plots: dropped "+(ids.length-keep.length)+" no longer owned");ids=keep;try{const c=JSON.parse(localStorage.getItem("mars_land_v1")||"null");if(c&&c.addr==="0x"+wa(ST.addr)){c.ids=keep;localStorage.setItem("mars_land_v1",JSON.stringify(c));}}catch(e){}}}catch(e){}
   let levels={};try{const enc=S.levelsBatch+w(32)+w(ids.length)+ids.map(w).join("");const r=await ethCall(A.plots,enc);const h=r.replace(/^0x/,"");const W=i=>h.slice(i*64,i*64+64);const len=parseInt(W(1),16);for(let i=0;i<len;i++)levels[ids[i]]=parseInt(W(2+i),16)||1;}catch(e){}
   // occupant==0 = truly empty & plantable. A finished rig keeps occupant=driller until collected,
   // so occupant!=0 = has a rig (running OR finished-uncollected). The real deploy blocker is the 100-rig cap.
   const plots=[];for(let s=0;s<ids.length;s+=120){const chunk=ids.slice(s,s+120),calls=[];chunk.forEach(id=>{calls.push({to:A.site2,data:S.occupantOf+w(id)});calls.push({to:A.plots,data:S.isOpen+w(id)});calls.push({to:A.site,data:S.occupantOf+w(id)});});
     let dec=[];try{dec=decAgg3(await ethCall(MC3,encAgg3(calls)));}catch(e){}
     chunk.forEach((id,k)=>{const oc=dec[3*k],op=dec[3*k+1],o1=dec[3*k+2],lv=levels[id]||1;const busy=x=>!!(x&&x.success&&BigInt(x.data||"0x0")!==0n);plots.push({id,level:lv,open:!!(op&&op.success&&BigInt(op.data||"0x0")===1n),empty:!busy(oc)&&!busy(o1),weight:(WEIGHTAT[lv]||1)*(ST.weightScale||100)});});}
-  ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);
+  ST.plots=plots;ST.myWeight=plots.reduce((a,p)=>a+p.weight,0);burnQuote();
   // active rigs (own + others' plots): siteOf(addr)=rig rows[tier,parcel,since,revealBlk,nonce], siteTiming(addr)=readyAt[]
   try{const[soRaw,stRaw,lsRaw,ltRaw,cfgRaw]=await Promise.all([ethCall(A.site2,S.siteOf+arg),ethCall(A.site2,S.siteTiming+arg).catch(()=>"0x"),ethCall(A.site,S.siteOf+arg).catch(()=>"0x"),ethCall(A.site,S.siteTiming+arg).catch(()=>"0x"),
       ethCall(MC3,encAgg3([{to:A.site2,data:S.refCfgVer},{to:A.site2,data:S.slotsOf+arg},{to:A.site2,data:S.plantingEnabled},{to:A.site2,data:S.rentalEconomy},{to:A.oil,data:S.bal1155+arg+w(OIL_ID)},{to:A.site2,data:S.deferredOil+arg+wa(A.oil)}])).catch(()=>"0x")]);
@@ -990,12 +994,34 @@ function costStr(lvl){const c=COST[lvl];if(!c)return "";return c.ids.map((id,k)=
 function renderPort(){const p=[...ST.plots].sort((a,b)=>(b.level-a.level)||(b.open-a.open)||a.id-b.id);if(!ST.upSel)ST.upSel=new Set();
   $("portR").textContent=fmt(ST.myWeight)+" wt · "+(ST.totalWeight?100*ST.myWeight/ST.totalWeight:0).toFixed(2)+"%";
   const upg=p.filter(x=>x.level<MAXLVL),allSel=upg.length>0&&upg.every(x=>ST.upSel.has(x.id));
-  $("portTbl").innerHTML="<table><thead><tr><th><input type=checkbox title='select every plot below max level' onclick='upSelAll()'"+(allSel?" checked":"")+(upg.length?"":" disabled")+" style='width:auto'></th><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th>Rig</th><th></th></tr></thead><tbody>"+
+  $("portTbl").innerHTML="<table><thead><tr><th><input type=checkbox title='select every plot below max level' onclick='upSelAll()'"+(allSel?" checked":"")+(upg.length?"":" disabled")+" style='width:auto'></th><th>Plot</th><th class=n>Lv</th><th>Gate</th><th class=n>Wt</th><th class=n title='ETH you get if you burn this plot (simulated burnPlot)'>ETH</th><th>Rig</th><th></th></tr></thead><tbody>"+
     p.map(x=>{const can=ST.canSign&&x.level<MAXLVL;
     return `<tr><td>${x.level<MAXLVL?`<input type=checkbox onclick="upToggle(${x.id})"${ST.upSel.has(x.id)?" checked":""} style="width:auto">`:''}</td><td class=mono>#${x.id}</td><td class=n>${x.level}</td>
       <td><span class="tag ${x.open?'t-open':'t-closed'}" onclick="toggleGate(${x.id},${x.open?0:1})" style="cursor:pointer">${x.open?'open':'gated'}</span></td>
-      <td class=n>${x.weight}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
-      <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";renderUpBar();}
+      <td class=n>${x.weight}</td><td class=n>${ST.burnQ&&ST.burnQ[x.id]>0?fmt(ST.burnQ[x.id],4):ST.burnQ&&ST.burnQ[x.id]===-1?'<span class="red">×</span>':'…'}</td><td>${x.empty?'<span class="tag t-idle">empty</span>':'<span class="tag t-busy">rig</span>'}</td>
+      <td class=n>${x.level<MAXLVL?`<button class="mini ${can?'':'sec'}" onclick="upgradePlot(${x.id})">Up→${x.level+1}</button>`:''}</td></tr>`;}).join("")+"</tbody></table>";renderUpBar();renderBurnBar();}
+// ---- burn plots for their locked ETH: plot treasury burnPlot(parcel, recipient) burns the land NFT and pays its backing ETH to recipient.
+// The value is read by simulating the call from your wallet (eth_call), one plot at a time; the burn itself is one tx per plot, back-to-back, each simulated first.
+let burnQAt=0,burnQBusy=false,burnArmed=0;
+async function burnQuote(force){if(burnQBusy||!ST.plots||!ST.plots.length)return;const q=ST.burnQ||(ST.burnQ={}),todo=ST.plots.map(p=>p.id).filter(id=>force||q[id]==null);if(!todo.length&&Date.now()-burnQAt<600e3)return;burnQBusy=true;
+  try{const ids=todo.length?todo:ST.plots.map(p=>p.id);for(let i=0;i<ids.length;i+=4){await Promise.all(ids.slice(i,i+4).map(async id=>{try{const r=await ethCall(A.treasury,S.burnPlot+w(id)+wa(ST.addr),ST.addr);q[id]=Number(BigInt(r.slice(0,66)))/1e18;}catch(e){q[id]=-1;}}));if(i%20===0)renderBurnBar();}burnQAt=Date.now();}
+  finally{burnQBusy=false;renderPort();}}
+function renderBurnBar(){const el=$("burnBar");if(!el)return;const p=ST.plots||[],q=ST.burnQ||{};if(!p.length){el.innerHTML='';return;}
+  const ok=p.filter(x=>q[x.id]>0),bad=p.filter(x=>q[x.id]===-1),pend=p.length-ok.length-bad.length,tot=ok.reduce((a,x)=>a+q[x.id],0),armed=burnArmed&&Date.now()-burnArmed<15000;
+  el.innerHTML='<button class="mini '+(armed?'g':'sec')+'" onclick="burnAll()"'+(ST.canSign&&ok.length?'':' disabled')+' title="plot treasury burnPlot: burns the land NFT and pays its locked ETH to your wallet. Irreversible: levels, buildings and the rent share are gone.">'+(armed?'🔥 TAP AGAIN: burn '+ok.length+' plots → '+fmt(tot,4)+' ETH':'🔥 Burn all '+ok.length+' plots → ≈ '+fmt(tot,4)+' ETH')+'</button>'
+    +'<span class="sub">locked ETH, simulated'+(pend?' · '+pend+' quoting…':'')+(bad.length?' · <span class="red">'+bad.length+' can’t burn now</span>':'')+(ST.canSign?'':' · connect your key')+' · '+ok.length+' tx</span>';}
+async function burnAll(){const o=$("portOut");if(!await guardChain(o))return;const q=ST.burnQ||{},list=(ST.plots||[]).filter(x=>q[x.id]>0).sort((a,b)=>a.id-b.id);if(!list.length){err(o,'Nothing to burn.');return;}
+  if(!(burnArmed&&Date.now()-burnArmed<15000)){burnArmed=Date.now();renderBurnBar();o.innerHTML='<div class="status s-wait">Irreversible: '+list.length+' plots → ≈ '+fmt(list.reduce((a,x)=>a+q[x.id],0),4)+' ETH to your wallet. Tap the button again within 15 s to confirm.</div>';setTimeout(renderBurnBar,15500);return;}
+  burnArmed=0;ST.busy=true;let done=0,got=0,lastH=null;const skipped=[];
+  try{for(const p of list){const data=S.burnPlot+w(p.id)+wa(ST.addr);let v=0;
+      try{const r=await ethCall(A.treasury,data,ST.addr);v=Number(BigInt(r.slice(0,66)))/1e18;}catch(e){skipped.push('#'+p.id+' '+decodeErr(e));continue;}
+      o.innerHTML='<div class="status s-wait">Burning '+(done+1)+'/'+list.length+' — #'+p.id+' → '+fmt(v,4)+' ETH… ('+fmt(got,4)+' ETH so far)</div>';
+      try{lastH=await send({from:ST.addr,to:A.treasury,data,value:"0x0"});log("BURN #"+p.id+" "+lastH);done++;got+=v;delete q[p.id];}
+      catch(e){err(o,'Stopped at '+done+'/'+list.length+' (#'+p.id+'): '+decodeErr(e)+(skipped.length?' · skipped '+skipped.join(', '):''));return;}}
+    if(lastH)await waitTx(lastH);
+    o.innerHTML='<div class="status s-ok">Burned '+done+' plots → ≈ '+fmt(got,4)+' ETH ✓'+(skipped.length?' · skipped: '+skipped.join(', '):'')+'</div>';}
+  finally{ST.busy=false;burnQAt=0;setTimeout(()=>loadAll(true),4000);}}
+window.burnAll=burnAll;
 // ---- multi-upgrade: tick plots, buy every missing stone in ONE tx, then upgrade each ticked plot by one level ----
 function upToggle(id){if(!ST.upSel)ST.upSel=new Set();if(ST.upSel.has(id))ST.upSel.delete(id);else ST.upSel.add(id);renderUpBar();}
 function upSelAll(){if(!ST.upSel)ST.upSel=new Set();const upg=ST.plots.filter(x=>x.level<MAXLVL);const all=upg.length>0&&upg.every(x=>ST.upSel.has(x.id));ST.upSel=new Set(all?[]:upg.map(x=>x.id));renderPort();}
